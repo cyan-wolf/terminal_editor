@@ -8,6 +8,14 @@
 #include <errno.h>
 
 /*
+ * Defines.
+ */
+
+// Maps ASCII letters to their control character counterpart.
+// i.e. This maps 'a' (97) to 1 and 'z' (122) to 26.
+#define CTRL_KEY(k) ((k) & 0x1f)
+
+/*
  * Data.
  */
 
@@ -18,8 +26,21 @@ struct termios og_termios;
  * Terminal handling.
  */
 
+void clearTermScreen() {
+    // Clears the screen by writing the escape sequence: '\x1b', '[', '2', 'J' to STDOUT.
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+}
+
+void resetTermCursor() {
+    // Position the cursor at the top-left of the terminal.
+    write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
 // Crash the program with an error message.
 void die(const char *message) {
+    clearTermScreen();
+    resetTermCursor();
+
     perror(message);
     exit(1);
 }
@@ -69,6 +90,54 @@ void enableTermRawMode() {
     }
 }
 
+// Waits for a key press before returning.
+char editorReadKey() {
+    int nread;
+    char c;
+    while ((nread = read(STDIN_FILENO, &c, 1) != 1)) {
+        if (nread == -1 && errno != EAGAIN) {
+            die("read");
+        }
+    }
+    return c;
+}
+
+/*
+ * Input handling.
+ */
+
+// Waits for a key press and processes it. 
+void editorProcessKeypress() {
+    char c = editorReadKey();
+
+    switch (c) {
+        case CTRL_KEY('q'):
+            clearTermScreen();
+            resetTermCursor();
+            exit(0);
+            break;
+    }
+}
+
+/*
+ * Output handling.
+ */
+
+void editorDrawRows() {
+    for (int y = 0; y < 24; y++) {
+        write(STDOUT_FILENO, "~\r\n", 3);
+    }
+}
+
+void editorRefreshScreen() {
+    clearTermScreen();
+    resetTermCursor();
+
+    editorDrawRows();
+
+    resetTermCursor();
+}
+
 /*
  * Program initialization.
  */
@@ -77,22 +146,8 @@ int main() {
 
     
     while (true) {
-        char c;
-        if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) {
-            die("read");
-        } 
-
-        if (iscntrl(c)) { // when c is a control character (non-printable)
-            printf("%d\r\n", c);
-        }
-        else {
-            // Print both as the codepoint and the character.
-            printf("%d ('%c')\r\n", c, c);
-        }
-
-        if (c == 'q') {
-            break;
-        }
+        editorRefreshScreen();
+        editorProcessKeypress();
     }
 
     return 0;
