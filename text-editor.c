@@ -1,11 +1,12 @@
-#include <asm-generic/errno-base.h>
+// #include <ctype.h>
+#include <asm-generic/ioctls.h>
 #include <unistd.h>
 #include <termios.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <sys/ioctl.h>
 
 /*
  * Defines.
@@ -19,8 +20,15 @@
  * Data.
  */
 
-// Caches the original terminal attributes for later cleanup.
-struct termios og_termios;
+struct EditorConfig {
+    int termRows;
+    int termCols;
+
+    // Caches the original terminal attributes for later cleanup.
+    struct termios og_termios;
+};
+
+struct EditorConfig editor;
 
 /*
  * Terminal handling.
@@ -46,14 +54,14 @@ void die(const char *message) {
 }
 
 void disableRawMode() {
-    if (tcsetattr(STDERR_FILENO, TCSAFLUSH, &og_termios) == -1) {
+    if (tcsetattr(STDERR_FILENO, TCSAFLUSH, &editor.og_termios) == -1) {
         die("tcsetattr");
     }
 }
 
 void enableTermRawMode() {
     // Get current terminal attribututes.
-    if (tcgetattr(STDIN_FILENO, &og_termios) == -1) {
+    if (tcgetattr(STDIN_FILENO, &editor.og_termios) == -1) {
         die("tcsetattr");
     }
     
@@ -61,7 +69,7 @@ void enableTermRawMode() {
     atexit(disableRawMode);
 
     // Copy the current terminal attributes for futher modification.
-    struct termios raw = og_termios;
+    struct termios raw = editor.og_termios;
 
     // Disable the default CTRL-S and CTRL-Q handling.
     // Disabling `ICRNL` makes CTRL-M be read as 13 (correct) instead of 10 (incorrect). 
@@ -102,6 +110,61 @@ char editorReadKey() {
     return c;
 }
 
+int getCursorPosition(int *rows, int *cols) {
+    if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) {
+        return -1;
+    }
+    
+    char buf[32];
+    unsigned int i = 0;
+
+    // Read the cursor position report into the buffer.
+    while (i < sizeof(buf) - 1) {
+        if (read(STDIN_FILENO, &buf[i], 1) != 1) {
+            break;
+        }
+        if (buf[i] == 'R') {
+            break;
+        }
+        i++;
+    }
+    // Null terminate the buffer so that it can be interpreted as a string.
+    buf[i] = '\0';
+
+    // Make sure that the read report is in the correct format.
+    if (buf[0] != '\x1b' || buf[1] != '[') {
+        return -1;
+    }
+    // Parse the rows and columns from the report.
+    if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) {
+        return -1;
+    }
+    return 0;
+}
+
+int getWindowSize(int *rows, int *cols) {
+    struct winsize ws;
+
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+        // Fallback logic to get the window size anyways:
+
+        // Try to move the cursor to the bottom right corner of the screen.
+        // This is done by moving it by large values (999). This escape code is 
+        // guaranteed to not move the cursor offscreen.
+        if (write(STDOUT_FILENO, "\x1b[999\x1b[999B", 12) != 12) {
+            return -1;
+        }
+        // Since the cursor at this point is at the bottom right corner, 
+        // the cursor's position corresponds to the window size.
+        return getCursorPosition(rows, cols);
+    }
+    else {
+        *cols = ws.ws_col;
+        *rows = ws.ws_row;
+        return 0;
+    }
+}
+
 /*
  * Input handling.
  */
@@ -124,8 +187,13 @@ void editorProcessKeypress() {
  */
 
 void editorDrawRows() {
-    for (int y = 0; y < 24; y++) {
-        write(STDOUT_FILENO, "~\r\n", 3);
+    for (int y = 0; y < editor.termRows; y++) {
+        write(STDOUT_FILENO, "~", 1);
+
+        // Avoid adding an extra new line at the end of the final row.
+        if (y < editor.termRows - 1) {
+            write(STDOUT_FILENO, "\r\n", 2);
+        }
     }
 }
 
@@ -141,10 +209,17 @@ void editorRefreshScreen() {
 /*
  * Program initialization.
  */
+
+void initEditor() {
+    if (getWindowSize(&editor.termRows, &editor.termCols) == -1) {
+        die("getWindowSize");
+    }
+}
+
 int main() {
     enableTermRawMode();
+    initEditor();
 
-    
     while (true) {
         editorRefreshScreen();
         editorProcessKeypress();
