@@ -14,6 +14,8 @@
  * Defines.
  */
 
+#define TERMINAL_EDITOR_VERSION "0.0.1"
+
 // Maps ASCII letters to their control character counterpart.
 // i.e. This maps 'a' (97) to 1 and 'z' (122) to 26.
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -240,7 +242,29 @@ void editorProcessKeypress() {
 
 void editorDrawRows(struct AppendBuf *aBuf) {
     for (int y = 0; y < editor.termRows; y++) {
-        bufAppend(aBuf, "~", 1);
+        if (y == editor.termRows / 3) {
+            char welcome[80];
+            int welcomeLen = snprintf(welcome, sizeof(welcome), 
+            "Terminal Editor - Version %s", TERMINAL_EDITOR_VERSION);
+
+            if (welcomeLen > editor.termRows) {
+                welcomeLen = editor.termRows;
+            }
+            int padding = (editor.termCols - welcomeLen) / 2;
+            if (padding > 0) {
+                bufAppend(aBuf, "~", 1);
+                padding--;
+            }
+            while (padding > 0) {
+                padding--;
+                bufAppend(aBuf, " ", 1);
+            }
+
+            bufAppend(aBuf, welcome, welcomeLen);
+        }
+        else {
+            bufAppend(aBuf, "~", 1);
+        }
 
         clearTermLine(aBuf);
 
