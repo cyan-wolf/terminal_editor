@@ -84,6 +84,14 @@ void resetTermCursorBuf(struct AppendBuf *aBuf) {
     bufAppend(aBuf, "\x1b[H", 3);
 }
 
+void showCursor(struct AppendBuf *aBuf) {
+    bufAppend(aBuf, "\x1b[?25h", 6);
+}
+
+void hideCursor(struct AppendBuf *aBuf) {
+    bufAppend(aBuf, "\x1b[?25l", 6);
+}
+
 // Crash the program with an error message.
 void die(const char *message) {
     clearTermScreen();
@@ -240,12 +248,14 @@ void editorDrawRows(struct AppendBuf *aBuf) {
 void editorRefreshScreen() {
     struct AppendBuf aBuf = NEW_APPEND_BUF;
 
+    hideCursor(&aBuf);
     clearTermScreenBuf(&aBuf);
     resetTermCursorBuf(&aBuf);
 
     editorDrawRows(&aBuf);
 
     resetTermCursorBuf(&aBuf);
+    showCursor(&aBuf);
 
     write(STDOUT_FILENO, aBuf.buf, aBuf.len);
     freeAppendBuf(&aBuf);
