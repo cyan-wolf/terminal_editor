@@ -1,5 +1,6 @@
 // #include <ctype.h>
 #include <asm-generic/ioctls.h>
+#include <stddef.h>
 #include <unistd.h>
 #include <termios.h>
 #include <stdlib.h>
@@ -7,6 +8,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <string.h>
 
 /*
  * Defines.
@@ -163,6 +165,34 @@ int getWindowSize(int *rows, int *cols) {
         *rows = ws.ws_row;
         return 0;
     }
+}
+
+/*
+ * "Append Buffer" type.
+ */
+struct AppendBuf {
+    char *buf;
+    size_t len;
+};
+
+#define NEW_APPEND_BUF {NULL, 0}
+
+void bufAppend(struct AppendBuf *aBuf, const char *s, int len) {
+    // Reallocate the underlying buffer for the string content.
+    char *newBuf = realloc(aBuf->buf, aBuf->len + len);
+    if (newBuf == NULL) {
+        return;
+    }
+    // Copy the source string `s` onto the new portion of the re-allocated buffer.
+    memcpy(&newBuf[aBuf->len], s, len);
+
+    // Update the structure's fields.
+    aBuf->buf = newBuf;
+    aBuf->len += len;
+}
+
+void freeAppendBuf(struct AppendBuf *aBuf) {
+    free(aBuf->buf);
 }
 
 /*
