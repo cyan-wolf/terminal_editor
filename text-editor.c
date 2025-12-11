@@ -33,6 +33,34 @@ struct EditorConfig {
 struct EditorConfig editor;
 
 /*
+ * "Append Buffer" type.
+ */
+struct AppendBuf {
+    char *buf;
+    size_t len;
+};
+
+#define NEW_APPEND_BUF {NULL, 0}
+
+void bufAppend(struct AppendBuf *aBuf, const char *s, int len) {
+    // Reallocate the underlying buffer for the string content.
+    char *newBuf = realloc(aBuf->buf, aBuf->len + len);
+    if (newBuf == NULL) {
+        return;
+    }
+    // Copy the source string `s` onto the new portion of the re-allocated buffer.
+    memcpy(&newBuf[aBuf->len], s, len);
+
+    // Update the structure's fields.
+    aBuf->buf = newBuf;
+    aBuf->len += len;
+}
+
+void freeAppendBuf(struct AppendBuf *aBuf) {
+    free(aBuf->buf);
+}
+
+/*
  * Terminal handling.
  */
 
@@ -41,9 +69,19 @@ void clearTermScreen() {
     write(STDOUT_FILENO, "\x1b[2J", 4);
 }
 
+void clearTermScreenBuf(struct AppendBuf *aBuf) {
+    // Clears the screen by writing the escape sequence: '\x1b', '[', '2', 'J' to STDOUT.
+    bufAppend(aBuf, "\x1b[2J", 4);
+}
+
 void resetTermCursor() {
     // Position the cursor at the top-left of the terminal.
     write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
+void resetTermCursorBuf(struct AppendBuf *aBuf) {
+    // Position the cursor at the top-left of the terminal.
+    bufAppend(aBuf, "\x1b[H", 3);
 }
 
 // Crash the program with an error message.
@@ -168,34 +206,6 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*
- * "Append Buffer" type.
- */
-struct AppendBuf {
-    char *buf;
-    size_t len;
-};
-
-#define NEW_APPEND_BUF {NULL, 0}
-
-void bufAppend(struct AppendBuf *aBuf, const char *s, int len) {
-    // Reallocate the underlying buffer for the string content.
-    char *newBuf = realloc(aBuf->buf, aBuf->len + len);
-    if (newBuf == NULL) {
-        return;
-    }
-    // Copy the source string `s` onto the new portion of the re-allocated buffer.
-    memcpy(&newBuf[aBuf->len], s, len);
-
-    // Update the structure's fields.
-    aBuf->buf = newBuf;
-    aBuf->len += len;
-}
-
-void freeAppendBuf(struct AppendBuf *aBuf) {
-    free(aBuf->buf);
-}
-
-/*
  * Input handling.
  */
 
@@ -216,24 +226,29 @@ void editorProcessKeypress() {
  * Output handling.
  */
 
-void editorDrawRows() {
+void editorDrawRows(struct AppendBuf *aBuf) {
     for (int y = 0; y < editor.termRows; y++) {
-        write(STDOUT_FILENO, "~", 1);
+        bufAppend(aBuf, "~", 1);
 
         // Avoid adding an extra new line at the end of the final row.
         if (y < editor.termRows - 1) {
-            write(STDOUT_FILENO, "\r\n", 2);
+            bufAppend(aBuf, "\r\n", 2);
         }
     }
 }
 
 void editorRefreshScreen() {
-    clearTermScreen();
-    resetTermCursor();
+    struct AppendBuf aBuf = NEW_APPEND_BUF;
 
-    editorDrawRows();
+    clearTermScreenBuf(&aBuf);
+    resetTermCursorBuf(&aBuf);
 
-    resetTermCursor();
+    editorDrawRows(&aBuf);
+
+    resetTermCursorBuf(&aBuf);
+
+    write(STDOUT_FILENO, aBuf.buf, aBuf.len);
+    freeAppendBuf(&aBuf);
 }
 
 /*
