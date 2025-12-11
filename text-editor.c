@@ -69,9 +69,13 @@ void clearTermScreen() {
     write(STDOUT_FILENO, "\x1b[2J", 4);
 }
 
-void clearTermScreenBuf(struct AppendBuf *aBuf) {
-    // Clears the screen by writing the escape sequence: '\x1b', '[', '2', 'J' to STDOUT.
-    bufAppend(aBuf, "\x1b[2J", 4);
+// void clearTermScreenBuf(struct AppendBuf *aBuf) {
+//     // Clears the screen by writing the escape sequence: '\x1b', '[', '2', 'J' to STDOUT.
+//     bufAppend(aBuf, "\x1b[2J", 4);
+// }
+
+void clearTermLine(struct AppendBuf *aBuf) {
+    bufAppend(aBuf, "\x1b[K", 3);
 }
 
 void resetTermCursor() {
@@ -238,6 +242,8 @@ void editorDrawRows(struct AppendBuf *aBuf) {
     for (int y = 0; y < editor.termRows; y++) {
         bufAppend(aBuf, "~", 1);
 
+        clearTermLine(aBuf);
+
         // Avoid adding an extra new line at the end of the final row.
         if (y < editor.termRows - 1) {
             bufAppend(aBuf, "\r\n", 2);
@@ -249,7 +255,6 @@ void editorRefreshScreen() {
     struct AppendBuf aBuf = NEW_APPEND_BUF;
 
     hideCursor(&aBuf);
-    clearTermScreenBuf(&aBuf);
     resetTermCursorBuf(&aBuf);
 
     editorDrawRows(&aBuf);
