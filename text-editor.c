@@ -21,10 +21,10 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 enum EditorKey {
-    ARROW_LEFT = 'a',
-    ARROW_RIGHT = 'd',
-    ARROW_UP = 'w',
-    ARROW_DOWN = 's',
+    ARROW_LEFT = 1000,
+    ARROW_RIGHT,
+    ARROW_UP,
+    ARROW_DOWN,
 };
 
 /*
@@ -163,7 +163,7 @@ void enableTermRawMode() {
 }
 
 // Waits for a key press before returning.
-char editorReadKey() {
+int editorReadKey() {
     int nread;
     char c;
     while ((nread = read(STDIN_FILENO, &c, 1) != 1)) {
@@ -265,7 +265,7 @@ int getWindowSize(int *rows, int *cols) {
  */
 
 
-void editorMoveCursor(char key) {
+void editorMoveCursor(int key) {
     switch (key) {
         case ARROW_LEFT:
             editor.cursorX--;
@@ -287,7 +287,7 @@ void editorMoveCursor(char key) {
 
 // Waits for a key press and processes it. 
 void editorProcessKeypress() {
-    char c = editorReadKey();
+    int c = editorReadKey();
 
     switch (c) {
         case CTRL_KEY('q'):
