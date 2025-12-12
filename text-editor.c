@@ -20,11 +20,21 @@
 // i.e. This maps 'a' (97) to 1 and 'z' (122) to 26.
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+enum EditorKey {
+    ARROW_LEFT = 'a',
+    ARROW_RIGHT = 'd',
+    ARROW_UP = 'w',
+    ARROW_DOWN = 's',
+};
+
 /*
  * Data.
  */
 
 struct EditorConfig {
+    int cursorX;
+    int cursorY;
+
     int termRows;
     int termCols;
 
@@ -98,12 +108,12 @@ void hideCursor(struct AppendBuf *aBuf) {
     bufAppend(aBuf, "\x1b[?25l", 6);
 }
 
-// Crash the program with an error message.
-void die(const char *message) {
+// Crash the program with an explanatory string `s`.
+void die(const char *s) {
     clearTermScreen();
     resetTermCursor();
 
-    perror(message);
+    perror(s);
     exit(1);
 }
 
@@ -161,7 +171,38 @@ char editorReadKey() {
             die("read");
         }
     }
-    return c;
+
+    // Intercept arrow keys so that they are read as special characters.
+    // The mapping is as follows:
+    // - Arrow keys are read as an escape sequence that starts with '\x1b' and '['.
+    //   which are then followed by A (up), B (down), C (right), or D (left).
+    // 
+    // The logic below reads past the first two bytes of the escape sequence and then
+    // maps the A, B, C, or D as ARROW_UP, ARROW_DOWN, ARROW_RIGHT, or ARROW_LEFT, respectively.
+    if (c == '\x1b') {
+        char seq[3];
+
+        if (read(STDOUT_FILENO, &seq[0], 1) != 1) {
+            return '\x1b';
+        }
+        if (read(STDOUT_FILENO, &seq[1], 1) != 1) {
+            return '\x1b';
+        }
+
+        if (seq[0] == '[') {
+            switch (seq[1]) {
+                case 'A': return ARROW_UP;
+                case 'B': return ARROW_DOWN;
+                case 'C': return ARROW_RIGHT;
+                case 'D': return ARROW_LEFT;
+            }
+        }
+    
+        return '\x1b';
+    }
+    else {
+        return c;
+    }
 }
 
 int getCursorPosition(int *rows, int *cols) {
@@ -223,6 +264,27 @@ int getWindowSize(int *rows, int *cols) {
  * Input handling.
  */
 
+
+void editorMoveCursor(char key) {
+    switch (key) {
+        case ARROW_LEFT:
+            editor.cursorX--;
+            break;
+
+        case ARROW_RIGHT:
+            editor.cursorX++;
+            break;
+
+        case ARROW_UP:
+            editor.cursorY--;
+            break;
+
+        case ARROW_DOWN:
+            editor.cursorY++;
+            break;
+    }
+}
+
 // Waits for a key press and processes it. 
 void editorProcessKeypress() {
     char c = editorReadKey();
@@ -232,6 +294,13 @@ void editorProcessKeypress() {
             clearTermScreen();
             resetTermCursor();
             exit(0);
+            break;
+
+        case ARROW_UP:
+        case ARROW_DOWN:
+        case ARROW_LEFT:
+        case ARROW_RIGHT:
+            editorMoveCursor(c);
             break;
     }
 }
@@ -283,6 +352,11 @@ void editorRefreshScreen() {
 
     editorDrawRows(&aBuf);
 
+    // Move the cursor to be at the position saved in the editor state.
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", editor.cursorY + 1, editor.cursorX + 1);
+    bufAppend(&aBuf, buf, strlen(buf));
+
     resetTermCursorBuf(&aBuf);
     showCursor(&aBuf);
 
@@ -295,6 +369,10 @@ void editorRefreshScreen() {
  */
 
 void initEditor() {
+    // Initialize the cursor position to be at the top-left corner.
+    editor.cursorX = 0;
+    editor.cursorY = 0 ;
+
     if (getWindowSize(&editor.termRows, &editor.termCols) == -1) {
         die("getWindowSize");
     }
