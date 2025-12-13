@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <string.h>
 
 /*
@@ -36,12 +37,20 @@ enum EditorKey {
  * Data.
  */
 
+struct TextRow {
+    int size;
+    char *chars;
+};
+
 struct EditorConfig {
     int cursorX;
     int cursorY;
 
     int termRows;
     int termCols;
+
+    int rowAmt;
+    struct TextRow row;
 
     // Caches the original terminal attributes for later cleanup.
     struct termios og_termios;
@@ -292,6 +301,22 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*
+ * File IO.
+ */
+
+// TODO: actually implement file IO.
+void editorOpen() {
+    char *line = "Hello! World!";
+    size_t len = 13;
+
+    editor.row.size = len;
+    editor.row.chars = malloc(len + 1);
+    memcpy(editor.row.chars, line, len);
+    editor.row.chars[len] = '\0';
+    editor.rowAmt = 1;
+}
+
+/*
  * Input handling.
  */
 
@@ -376,28 +401,39 @@ void editorProcessKeypress() {
 
 void editorDrawRows(struct AppendBuf *aBuf) {
     for (int y = 0; y < editor.termRows; y++) {
-        if (y == editor.termRows / 3) {
-            char welcome[80];
-            int welcomeLen = snprintf(welcome, sizeof(welcome), 
-            "Terminal Editor - Version %s", TERMINAL_EDITOR_VERSION);
+        // Draw a line without text.
+        if (y >= editor.rowAmt) {
+            if (y == editor.termRows / 3) {
+                char welcome[80];
+                int welcomeLen = snprintf(welcome, sizeof(welcome), 
+                "Terminal Editor - Version %s", TERMINAL_EDITOR_VERSION);
 
-            if (welcomeLen > editor.termRows) {
-                welcomeLen = editor.termRows;
+                if (welcomeLen > editor.termRows) {
+                    welcomeLen = editor.termRows;
+                }
+                int padding = (editor.termCols - welcomeLen) / 2;
+                if (padding > 0) {
+                    bufAppend(aBuf, "~", 1);
+                    padding--;
+                }
+                while (padding > 0) {
+                    padding--;
+                    bufAppend(aBuf, " ", 1);
+                }
+
+                bufAppend(aBuf, welcome, welcomeLen);
             }
-            int padding = (editor.termCols - welcomeLen) / 2;
-            if (padding > 0) {
+            else {
                 bufAppend(aBuf, "~", 1);
-                padding--;
             }
-            while (padding > 0) {
-                padding--;
-                bufAppend(aBuf, " ", 1);
-            }
-
-            bufAppend(aBuf, welcome, welcomeLen);
         }
+        // Draw a line with text.
         else {
-            bufAppend(aBuf, "~", 1);
+            int len = editor.row.size;
+            if (len > editor.termCols) {
+                len = editor.termCols;
+            }
+            bufAppend(aBuf, editor.row.chars, len);
         }
 
         clearTermLine(aBuf);
@@ -437,6 +473,8 @@ void initEditor() {
     editor.cursorX = 0;
     editor.cursorY = 0 ;
 
+    editor.rowAmt = 0;
+
     if (getWindowSize(&editor.termRows, &editor.termCols) == -1) {
         die("getWindowSize");
     }
@@ -445,6 +483,7 @@ void initEditor() {
 int main() {
     enableTermRawMode();
     initEditor();
+    editorOpen();
 
     while (true) {
         editorRefreshScreen();
