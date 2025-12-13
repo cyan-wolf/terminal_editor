@@ -268,18 +268,30 @@ int getWindowSize(int *rows, int *cols) {
 void editorMoveCursor(int key) {
     switch (key) {
         case ARROW_LEFT:
+            if (editor.cursorX == 0) {
+                break;
+            }
             editor.cursorX--;
             break;
 
         case ARROW_RIGHT:
+            if (editor.cursorX == editor.termCols - 1) {
+                break;
+            }
             editor.cursorX++;
             break;
 
         case ARROW_UP:
+            if (editor.cursorY == 0) {
+                break;
+            }
             editor.cursorY--;
             break;
 
         case ARROW_DOWN:
+            if (editor.cursorY == editor.termRows - 1) {
+                break;
+            }
             editor.cursorY++;
             break;
     }
