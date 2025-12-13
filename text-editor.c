@@ -357,7 +357,6 @@ void editorRefreshScreen() {
     snprintf(buf, sizeof(buf), "\x1b[%d;%dH", editor.cursorY + 1, editor.cursorX + 1);
     bufAppend(&aBuf, buf, strlen(buf));
 
-    resetTermCursorBuf(&aBuf);
     showCursor(&aBuf);
 
     write(STDOUT_FILENO, aBuf.buf, aBuf.len);
