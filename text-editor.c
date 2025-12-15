@@ -52,7 +52,7 @@ struct EditorConfig {
     int termCols;
 
     int rowAmt;
-    struct TextRow row;
+    struct TextRow *rows;
 
     // Caches the original terminal attributes for later cleanup.
     struct termios og_termios;
@@ -303,6 +303,20 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*
+ * Row operations
+ */
+void editorAppendRow(char *s, size_t len) {
+    editor.rows = realloc(editor.rows, sizeof(struct TextRow) * (editor.rowAmt + 1));
+
+    int at = editor.rowAmt;
+    editor.rows[at].size = len;
+    editor.rows[at].chars = malloc(len + 1);
+    memcpy(editor.rows[at].chars, s, len);
+    editor.rows[at].chars[len] = '\0';
+    editor.rowAmt++;
+}
+
+/*
  * File IO.
  */
 
@@ -315,20 +329,14 @@ void editorOpen(char *filename) {
     char *line = NULL;
     size_t lineCapacity = 0;
     ssize_t lineLen;
-    lineLen = getline(&line, &lineCapacity, fp);
 
-    if (lineLen != -1) {
+    while ((lineLen = getline(&line, &lineCapacity, fp)) != -1) {
         while (lineLen > 0 
             && (line[lineLen - 1] == '\n' || line[lineLen - 1] == '\r')
         ) {
             lineLen--;
         }
-        
-        editor.row.size = lineLen;
-        editor.row.chars = malloc(lineLen + 1);
-        memcpy(&editor.row.chars, &line, lineLen);
-        editor.row.chars[lineLen] = '\0';
-        editor.rowAmt = 1;
+        editorAppendRow(line, lineLen);
     }
     free(line);
     fclose(fp);
@@ -447,11 +455,11 @@ void editorDrawRows(struct AppendBuf *aBuf) {
         }
         // Draw a line with text.
         else {
-            int len = editor.row.size;
+            int len = editor.rows[y].size;
             if (len > editor.termCols) {
                 len = editor.termCols;
             }
-            bufAppend(aBuf, editor.row.chars, len);
+            bufAppend(aBuf, editor.rows[y].chars, len);
         }
 
         clearTermLine(aBuf);
@@ -492,6 +500,7 @@ void initEditor() {
     editor.cursorY = 0 ;
 
     editor.rowAmt = 0;
+    editor.rows = NULL;
 
     if (getWindowSize(&editor.termRows, &editor.termCols) == -1) {
         die("getWindowSize");
