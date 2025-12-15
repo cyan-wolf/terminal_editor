@@ -49,6 +49,7 @@ struct EditorConfig {
     int cursorY;
 
     int rowOffset;
+    int colOffset;
 
     int termRows;
     int termCols;
@@ -359,9 +360,7 @@ void editorMoveCursor(int key) {
             break;
 
         case ARROW_RIGHT:
-            if (editor.cursorX == editor.termCols - 1) {
-                break;
-            }
+            // No bounds checking when scrolling to the right.
             editor.cursorX++;
             break;
 
@@ -435,6 +434,13 @@ void editorScroll() {
     if (editor.cursorY >= editor.rowOffset + editor.termRows) {
         editor.rowOffset = editor.cursorY - editor.termRows + 1;
     }
+
+    if (editor.cursorX < editor.colOffset) {
+        editor.colOffset = editor.cursorX;
+    }
+    if (editor.cursorX >= editor.colOffset + editor.termCols) {
+        editor.colOffset = editor.cursorX - editor.termCols + 1;
+    }
 }
 
 void editorDrawRows(struct AppendBuf *aBuf) {
@@ -469,11 +475,14 @@ void editorDrawRows(struct AppendBuf *aBuf) {
         }
         // Draw a line with text.
         else {
-            int len = editor.rows[fileRow].size;
+            int len = editor.rows[fileRow].size - editor.colOffset;
+            if (len < 0) {
+                len = 0;
+            }
             if (len > editor.termCols) {
                 len = editor.termCols;
             }
-            bufAppend(aBuf, editor.rows[fileRow].chars, len);
+            bufAppend(aBuf, &editor.rows[fileRow].chars[editor.colOffset], len);
         }
 
         clearTermLine(aBuf);
@@ -497,7 +506,7 @@ void editorRefreshScreen() {
 
     // Move the cursor to be at the position saved in the editor state.
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (editor.cursorY - editor.rowOffset) + 1, editor.cursorX + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (editor.cursorY - editor.rowOffset) + 1, (editor.cursorX - editor.colOffset) + 1);
     bufAppend(&aBuf, buf, strlen(buf));
 
     showCursor(&aBuf);
@@ -516,6 +525,7 @@ void initEditor() {
     editor.cursorY = 0;
 
     editor.rowOffset = 0;
+    editor.colOffset = 0;
 
     editor.rowAmt = 0;
     editor.rows = NULL;
