@@ -48,6 +48,8 @@ struct EditorConfig {
     int cursorX;
     int cursorY;
 
+    int rowOffset;
+
     int termRows;
     int termCols;
 
@@ -371,7 +373,8 @@ void editorMoveCursor(int key) {
             break;
 
         case ARROW_DOWN:
-            if (editor.cursorY == editor.termRows - 1) {
+            // Stop the cursor from pointing to an out-of-bounds row.
+            if (editor.cursorY >= editor.rowAmt) {
                 break;
             }
             editor.cursorY++;
@@ -425,10 +428,21 @@ void editorProcessKeypress() {
  * Output handling.
  */
 
+void editorScroll() {
+    if (editor.cursorY < editor.rowOffset) {
+        editor.rowOffset = editor.cursorY;
+    }
+    if (editor.cursorY >= editor.rowOffset + editor.termRows) {
+        editor.rowOffset = editor.cursorY - editor.termRows + 1;
+    }
+}
+
 void editorDrawRows(struct AppendBuf *aBuf) {
     for (int y = 0; y < editor.termRows; y++) {
+        int fileRow = y + editor.rowOffset;
+
         // Draw a line without text.
-        if (y >= editor.rowAmt) {
+        if (fileRow >= editor.rowAmt) {
             if (editor.rowAmt == 0 && y == editor.termRows / 3) {
                 char welcome[80];
                 int welcomeLen = snprintf(welcome, sizeof(welcome), 
@@ -455,11 +469,11 @@ void editorDrawRows(struct AppendBuf *aBuf) {
         }
         // Draw a line with text.
         else {
-            int len = editor.rows[y].size;
+            int len = editor.rows[fileRow].size;
             if (len > editor.termCols) {
                 len = editor.termCols;
             }
-            bufAppend(aBuf, editor.rows[y].chars, len);
+            bufAppend(aBuf, editor.rows[fileRow].chars, len);
         }
 
         clearTermLine(aBuf);
@@ -472,6 +486,8 @@ void editorDrawRows(struct AppendBuf *aBuf) {
 }
 
 void editorRefreshScreen() {
+    editorScroll();
+
     struct AppendBuf aBuf = NEW_APPEND_BUF;
 
     hideCursor(&aBuf);
@@ -481,7 +497,7 @@ void editorRefreshScreen() {
 
     // Move the cursor to be at the position saved in the editor state.
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", editor.cursorY + 1, editor.cursorX + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (editor.cursorY - editor.rowOffset) + 1, editor.cursorX + 1);
     bufAppend(&aBuf, buf, strlen(buf));
 
     showCursor(&aBuf);
@@ -497,7 +513,9 @@ void editorRefreshScreen() {
 void initEditor() {
     // Initialize the cursor position to be at the top-left corner.
     editor.cursorX = 0;
-    editor.cursorY = 0 ;
+    editor.cursorY = 0;
+
+    editor.rowOffset = 0;
 
     editor.rowAmt = 0;
     editor.rows = NULL;
