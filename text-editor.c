@@ -1,4 +1,6 @@
-// #include <ctype.h>
+// For 'enabling' POSIX extensions like `getline`.
+#define _GNU_SOURCE
+
 #include <asm-generic/ioctls.h>
 #include <stddef.h>
 #include <unistd.h>
@@ -304,16 +306,32 @@ int getWindowSize(int *rows, int *cols) {
  * File IO.
  */
 
-// TODO: actually implement file IO.
-void editorOpen() {
-    char *line = "Hello! World!";
-    size_t len = 13;
+void editorOpen(char *filename) {
+    FILE *fp = fopen(filename, "r");
+    if (!fp) {
+        die("fopen");
+    }
 
-    editor.row.size = len;
-    editor.row.chars = malloc(len + 1);
-    memcpy(editor.row.chars, line, len);
-    editor.row.chars[len] = '\0';
-    editor.rowAmt = 1;
+    char *line = NULL;
+    size_t lineCapacity = 0;
+    ssize_t lineLen;
+    lineLen = getline(&line, &lineCapacity, fp);
+
+    if (lineLen != -1) {
+        while (lineLen > 0 
+            && (line[lineLen - 1] == '\n' || line[lineLen - 1] == '\r')
+        ) {
+            lineLen--;
+        }
+        
+        editor.row.size = lineLen;
+        editor.row.chars = malloc(lineLen + 1);
+        memcpy(&editor.row.chars, &line, lineLen);
+        editor.row.chars[lineLen] = '\0';
+        editor.rowAmt = 1;
+    }
+    free(line);
+    fclose(fp);
 }
 
 /*
@@ -403,13 +421,13 @@ void editorDrawRows(struct AppendBuf *aBuf) {
     for (int y = 0; y < editor.termRows; y++) {
         // Draw a line without text.
         if (y >= editor.rowAmt) {
-            if (y == editor.termRows / 3) {
+            if (editor.rowAmt == 0 && y == editor.termRows / 3) {
                 char welcome[80];
                 int welcomeLen = snprintf(welcome, sizeof(welcome), 
                 "Terminal Editor - Version %s", TERMINAL_EDITOR_VERSION);
 
-                if (welcomeLen > editor.termRows) {
-                    welcomeLen = editor.termRows;
+                if (welcomeLen > editor.termCols) {
+                    welcomeLen = editor.termCols;
                 }
                 int padding = (editor.termCols - welcomeLen) / 2;
                 if (padding > 0) {
@@ -480,10 +498,13 @@ void initEditor() {
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     enableTermRawMode();
     initEditor();
-    editorOpen();
+
+    if (argc >= 2) {
+        editorOpen(argv[1]);
+    }
 
     while (true) {
         editorRefreshScreen();
