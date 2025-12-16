@@ -356,17 +356,25 @@ void editorMoveCursor(int key) {
     switch (key) {
         case ARROW_LEFT:
             if (editor.cursorX == 0) {
+                // Move to the end of the previous line (if it exists).
+                if (editor.cursorY > 0) {
+                    editor.cursorY--;
+                    editor.cursorX = editor.rows[editor.cursorY].size;
+                }
+
                 break;
             }
             editor.cursorX--;
             break;
 
         case ARROW_RIGHT:
-            // Disallow moving past the current row.
-            if (!currRow || editor.cursorX >= currRow->size) {
-                break;
+            if (currRow && editor.cursorX < currRow->size) {
+                editor.cursorX++;
             }
-            editor.cursorX++;
+            else if (currRow && editor.cursorX == currRow->size) {
+                editor.cursorY++;
+                editor.cursorX = 0;
+            }
             break;
 
         case ARROW_UP:
