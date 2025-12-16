@@ -351,6 +351,8 @@ void editorOpen(char *filename) {
 
 
 void editorMoveCursor(int key) {
+    struct TextRow *currRow = (editor.cursorY >= editor.rowAmt)? NULL : &editor.rows[editor.cursorY];
+
     switch (key) {
         case ARROW_LEFT:
             if (editor.cursorX == 0) {
@@ -360,7 +362,10 @@ void editorMoveCursor(int key) {
             break;
 
         case ARROW_RIGHT:
-            // No bounds checking when scrolling to the right.
+            // Disallow moving past the current row.
+            if (!currRow || editor.cursorX >= currRow->size) {
+                break;
+            }
             editor.cursorX++;
             break;
 
@@ -379,6 +384,14 @@ void editorMoveCursor(int key) {
             editor.cursorY++;
             break;
     }
+
+    // Snap the cursor's x position to the length of the current row if it 
+    // goes past it.
+    currRow = (editor.cursorY >= editor.rowAmt)? NULL : &editor.rows[editor.cursorY];
+    int rowLen = (currRow != NULL)? currRow->size : 0;
+    if (editor.cursorX > rowLen) {
+        editor.cursorX = rowLen;
+    } 
 }
 
 // Waits for a key press and processes it. 
