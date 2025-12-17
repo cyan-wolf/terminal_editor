@@ -63,8 +63,10 @@ struct EditorConfig {
     int rowAmt;
     struct TextRow *rows;
 
+    char *filename;
+
     // Caches the original terminal attributes for later cleanup.
-    struct termios og_termios;
+    struct termios ogTermios;
 };
 
 struct EditorConfig editor;
@@ -143,14 +145,14 @@ void die(const char *s) {
 }
 
 void disableRawMode() {
-    if (tcsetattr(STDERR_FILENO, TCSAFLUSH, &editor.og_termios) == -1) {
+    if (tcsetattr(STDERR_FILENO, TCSAFLUSH, &editor.ogTermios) == -1) {
         die("tcsetattr");
     }
 }
 
 void enableTermRawMode() {
     // Get current terminal attribututes.
-    if (tcgetattr(STDIN_FILENO, &editor.og_termios) == -1) {
+    if (tcgetattr(STDIN_FILENO, &editor.ogTermios) == -1) {
         die("tcsetattr");
     }
     
@@ -158,7 +160,7 @@ void enableTermRawMode() {
     atexit(disableRawMode);
 
     // Copy the current terminal attributes for futher modification.
-    struct termios raw = editor.og_termios;
+    struct termios raw = editor.ogTermios;
 
     // Disable the default CTRL-S and CTRL-Q handling.
     // Disabling `ICRNL` makes CTRL-M be read as 13 (correct) instead of 10 (incorrect). 
@@ -379,6 +381,9 @@ void editorAppendRow(char *s, size_t len) {
  */
 
 void editorOpen(char *filename) {
+    free(editor.filename);
+    editor.filename = strdup(filename);
+
     FILE *fp = fopen(filename, "r");
     if (!fp) {
         die("fopen");
@@ -474,17 +479,25 @@ void editorProcessKeypress() {
             break;
 
         case END_KEY:
-            editor.cursorX = editor.termCols - 1;
+            if (editor.cursorY < editor.rowAmt) {
+                editor.cursorX = editor.rows[editor.cursorY].size;
+            }
             break;
 
         case PAGE_UP:
         case PAGE_DOWN:
         {
-            // Move the cursor to the top or bottom of the screen.
-            // We always move the `editor.termRows` up/down since the 
-            // move cursor function already covers clamping so we don't worry 
-            // about going out of bounds.
-            for (int _i = 0; _i < editor.termRows; ++_i) {
+            if (c == PAGE_UP) {
+                editor.cursorY = editor.rowOffset;
+            }
+            else if (c == PAGE_DOWN) {
+                editor.cursorY = editor.rowOffset + editor.termRows - 1;
+
+                if (editor.cursorY > editor.rowAmt) {
+                    editor.cursorY = editor.rowAmt;
+                }
+            }
+            for (int _i = 0; _i < editor.rowAmt; ++_i) {
                 editorMoveCursor((c == PAGE_UP)? ARROW_UP : ARROW_DOWN);
             }
             break;
@@ -568,11 +581,27 @@ void editorDrawRows(struct AppendBuf *aBuf) {
 
         clearTermLine(aBuf);
 
-        // Avoid adding an extra new line at the end of the final row.
-        if (y < editor.termRows - 1) {
-            bufAppend(aBuf, "\r\n", 2);
-        }
+        bufAppend(aBuf, "\r\n", 2);
     }
+}
+
+void editorDrawStatusBar(struct AppendBuf *aBuf) {
+    // Invert terminal colors for this row.
+    bufAppend(aBuf, "\x1b[7m", 4);
+
+    char status[80];
+
+    int statusLen = snprintf(status, sizeof(status), "%.20s - %d lines",
+        (editor.filename != NULL)? editor.filename : "[No Filename]", 
+        editor.rowAmt);
+    bufAppend(aBuf, status, statusLen);
+
+    while (statusLen < editor.termCols) {
+        bufAppend(aBuf, " ", 1);
+        statusLen++;
+    }
+    // Reset terminal colors back to normal.
+    bufAppend(aBuf, "\x1b[m", 3);
 }
 
 void editorRefreshScreen() {
@@ -584,6 +613,7 @@ void editorRefreshScreen() {
     resetTermCursorBuf(&aBuf);
 
     editorDrawRows(&aBuf);
+    editorDrawStatusBar(&aBuf);
 
     // Move the cursor to be at the position saved in the editor state.
     char buf[32];
@@ -611,10 +641,13 @@ void initEditor() {
 
     editor.rowAmt = 0;
     editor.rows = NULL;
+    
+    editor.filename = NULL;
 
     if (getWindowSize(&editor.termRows, &editor.termCols) == -1) {
         die("getWindowSize");
     }
+    editor.termRows -= 1; // make room for the status row at the bottom
 }
 
 int main(int argc, char *argv[]) {
