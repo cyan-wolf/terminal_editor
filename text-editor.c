@@ -19,6 +19,8 @@
 
 #define TERMINAL_EDITOR_VERSION "0.0.1"
 
+#define TERMINAL_EDITOR_TAB_SIZE 8
+
 // Maps ASCII letters to their control character counterpart.
 // i.e. This maps 'a' (97) to 1 and 'z' (122) to 26.
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -42,6 +44,9 @@ enum EditorKey {
 struct TextRow {
     int size;
     char *chars;
+
+    int renderSize;
+    char *render;
 };
 
 struct EditorConfig {
@@ -308,6 +313,38 @@ int getWindowSize(int *rows, int *cols) {
 /*
  * Row operations
  */
+
+void editorUpdateRow(struct TextRow *row) {
+    // Count the number of tabs in the row.
+    int tabAmt = 0;
+    for (int i = 0; i < row->size; i++) {
+        if (row->chars[i] == '\t') {
+            tabAmt++;
+        }
+    }
+
+    free(row->render);
+    row->render = malloc(row->size + tabAmt*(TERMINAL_EDITOR_TAB_SIZE - 1) + 1);
+
+    int renderIdx = 0;
+
+    for (int i = 0; i < row->size; i++) {
+        // Simulate tab spacing by adding spaces until the row index is a 
+        // multiple of the tab size.
+        if (row->chars[i] == '\t') {
+            row->render[renderIdx++] = ' ';
+            while (renderIdx % TERMINAL_EDITOR_TAB_SIZE != 0) {
+                row->render[renderIdx++] = ' ';
+            }
+        }
+        else {
+            row->render[renderIdx++] = row->chars[i];
+        }
+    }
+    row->render[renderIdx] = '\0';
+    row->renderSize = renderIdx;
+}
+
 void editorAppendRow(char *s, size_t len) {
     editor.rows = realloc(editor.rows, sizeof(struct TextRow) * (editor.rowAmt + 1));
 
@@ -316,6 +353,11 @@ void editorAppendRow(char *s, size_t len) {
     editor.rows[at].chars = malloc(len + 1);
     memcpy(editor.rows[at].chars, s, len);
     editor.rows[at].chars[len] = '\0';
+
+    editor.rows[at].renderSize = 0;
+    editor.rows[at].render = NULL;
+    editorUpdateRow(&editor.rows[at]);
+
     editor.rowAmt++;
 }
 
@@ -496,14 +538,14 @@ void editorDrawRows(struct AppendBuf *aBuf) {
         }
         // Draw a line with text.
         else {
-            int len = editor.rows[fileRow].size - editor.colOffset;
+            int len = editor.rows[fileRow].renderSize - editor.colOffset;
             if (len < 0) {
                 len = 0;
             }
             if (len > editor.termCols) {
                 len = editor.termCols;
             }
-            bufAppend(aBuf, &editor.rows[fileRow].chars[editor.colOffset], len);
+            bufAppend(aBuf, &editor.rows[fileRow].render[editor.colOffset], len);
         }
 
         clearTermLine(aBuf);
