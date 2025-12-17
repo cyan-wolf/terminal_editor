@@ -52,6 +52,7 @@ struct TextRow {
 struct EditorConfig {
     int cursorX;
     int cursorY;
+    int renderCursorX;
 
     int rowOffset;
     int colOffset;
@@ -314,6 +315,18 @@ int getWindowSize(int *rows, int *cols) {
  * Row operations
  */
 
+int editorCursorXRealToRender(struct TextRow *row, int cursorX) {
+    int renderCursorX = 0;
+    
+    for (int i = 0; i < cursorX; i++) {
+        if (row->chars[i] == '\t') {
+            renderCursorX += (TERMINAL_EDITOR_TAB_SIZE - 1) - (renderCursorX % TERMINAL_EDITOR_TAB_SIZE);
+        }
+        renderCursorX++;
+    }
+    return renderCursorX;
+}
+
 void editorUpdateRow(struct TextRow *row) {
     // Count the number of tabs in the row.
     int tabAmt = 0;
@@ -491,6 +504,11 @@ void editorProcessKeypress() {
  */
 
 void editorScroll() {
+    editor.renderCursorX = 0;
+    if (editor.cursorY < editor.rowAmt) {
+        editor.renderCursorX = editorCursorXRealToRender(&editor.rows[editor.cursorY], editor.cursorX);
+    }
+
     if (editor.cursorY < editor.rowOffset) {
         editor.rowOffset = editor.cursorY;
     }
@@ -498,11 +516,11 @@ void editorScroll() {
         editor.rowOffset = editor.cursorY - editor.termRows + 1;
     }
 
-    if (editor.cursorX < editor.colOffset) {
-        editor.colOffset = editor.cursorX;
+    if (editor.renderCursorX < editor.colOffset) {
+        editor.colOffset = editor.renderCursorX;
     }
-    if (editor.cursorX >= editor.colOffset + editor.termCols) {
-        editor.colOffset = editor.cursorX - editor.termCols + 1;
+    if (editor.renderCursorX >= editor.colOffset + editor.termCols) {
+        editor.colOffset = editor.renderCursorX - editor.termCols + 1;
     }
 }
 
@@ -569,7 +587,7 @@ void editorRefreshScreen() {
 
     // Move the cursor to be at the position saved in the editor state.
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (editor.cursorY - editor.rowOffset) + 1, (editor.cursorX - editor.colOffset) + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (editor.cursorY - editor.rowOffset) + 1, (editor.renderCursorX - editor.colOffset) + 1);
     bufAppend(&aBuf, buf, strlen(buf));
 
     showCursor(&aBuf);
@@ -586,6 +604,7 @@ void initEditor() {
     // Initialize the cursor position to be at the top-left corner.
     editor.cursorX = 0;
     editor.cursorY = 0;
+    editor.renderCursorX = 0;
 
     editor.rowOffset = 0;
     editor.colOffset = 0;
