@@ -395,7 +395,7 @@ void editorAppendRow(char *s, size_t len) {
     editor.isDirty = true;
 }
 
-void editorInsertCharIntoRow(struct TextRow* row, int at, int ch) {
+void editorInsertCharIntoRow(struct TextRow *row, int at, int ch) {
     if (at < 0 || at > row->size) {
         at = row->size;
     }
@@ -411,6 +411,18 @@ void editorInsertCharIntoRow(struct TextRow* row, int at, int ch) {
     editor.isDirty = true;
 }
 
+void editorDeleteCharFromRow(struct TextRow *row, int at) {
+    if (at < 0 || at >= row->size) {
+        return;
+    }
+    // Shift everything after `at` back one index to delete the character at 
+    // index `at`.
+    memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
+    row->size--;
+    editorUpdateRow(row);
+    editor.isDirty = true;
+}
+
 /*
  * Editor operations.
  */
@@ -421,6 +433,17 @@ void editorInsertChar(int ch) {
     }
     editorInsertCharIntoRow(&editor.rows[editor.cursorY], editor.cursorX, ch);
     editor.cursorX++;
+}
+
+void editorDelChar() {
+    if (editor.cursorY == editor.rowAmt) {
+        return;
+    }
+    struct TextRow *row = &editor.rows[editor.cursorY];
+    if (editor.cursorX > 0) {
+        editorDeleteCharFromRow(row, editor.cursorX - 1);
+        editor.cursorX--;
+    }
 }
 
 /*
@@ -614,7 +637,11 @@ void editorProcessKeypress() {
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
-            // TODO: delete the current character (or line if it is empty)
+            if (ch == DEL_KEY) {
+                // The delete key deletes the character in front the cursor.
+                editorMoveCursor(ARROW_RIGHT);
+            }
+            editorDelChar();
             break;
 
         case PAGE_UP:
