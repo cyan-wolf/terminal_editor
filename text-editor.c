@@ -199,8 +199,8 @@ void enableTermRawMode() {
 // Waits for a key press before returning.
 int editorReadKey() {
     int nread;
-    char c;
-    while ((nread = read(STDIN_FILENO, &c, 1) != 1)) {
+    char ch;
+    while ((nread = read(STDIN_FILENO, &ch, 1) != 1)) {
         if (nread == -1 && errno != EAGAIN) {
             die("read");
         }
@@ -213,7 +213,7 @@ int editorReadKey() {
     // 
     // The logic below reads past the first two bytes of the escape sequence and then
     // maps the A, B, C, or D as ARROW_UP, ARROW_DOWN, ARROW_RIGHT, or ARROW_LEFT, respectively.
-    if (c == '\x1b') {
+    if (ch == '\x1b') {
         char seq[3];
 
         if (read(STDOUT_FILENO, &seq[0], 1) != 1) {
@@ -261,7 +261,7 @@ int editorReadKey() {
         return '\x1b';
     }
     else {
-        return c;
+        return ch;
     }
 }
 
@@ -383,6 +383,33 @@ void editorAppendRow(char *s, size_t len) {
     editor.rowAmt++;
 }
 
+void editorInsertCharIntoRow(struct TextRow* row, int at, int ch) {
+    if (at < 0 || at > row->size) {
+        at = row->size;
+    }
+    row->chars = realloc(row->chars, row->size + 2);
+
+    // Move the portion of the row at/after `at` by 1 to make room for 
+    // inserting `ch` at `row->chars[at]`. 
+    memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
+
+    row->size++;
+    row->chars[at] = ch;
+    editorUpdateRow(row);
+}
+
+/*
+ * Editor operations.
+ */
+
+void editorInsertChar(int ch) {
+    if (editor.cursorY == editor.rowAmt) {
+        editorAppendRow("", 0);
+    }
+    editorInsertCharIntoRow(&editor.rows[editor.cursorY], editor.cursorX, ch);
+    editor.cursorX++;
+}
+
 /*
  * File IO.
  */
@@ -471,9 +498,9 @@ void editorMoveCursor(int key) {
 
 // Waits for a key press and processes it. 
 void editorProcessKeypress() {
-    int c = editorReadKey();
+    int ch = editorReadKey();
 
-    switch (c) {
+    switch (ch) {
         case CTRL_KEY('q'):
             clearTermScreen();
             resetTermCursor();
@@ -494,10 +521,10 @@ void editorProcessKeypress() {
         case PAGE_UP:
         case PAGE_DOWN:
         {
-            if (c == PAGE_UP) {
+            if (ch == PAGE_UP) {
                 editor.cursorY = editor.rowOffset;
             }
-            else if (c == PAGE_DOWN) {
+            else if (ch == PAGE_DOWN) {
                 editor.cursorY = editor.rowOffset + editor.termRows - 1;
 
                 if (editor.cursorY > editor.rowAmt) {
@@ -505,7 +532,7 @@ void editorProcessKeypress() {
                 }
             }
             for (int _i = 0; _i < editor.rowAmt; ++_i) {
-                editorMoveCursor((c == PAGE_UP)? ARROW_UP : ARROW_DOWN);
+                editorMoveCursor((ch == PAGE_UP)? ARROW_UP : ARROW_DOWN);
             }
             break;
         }
@@ -514,7 +541,11 @@ void editorProcessKeypress() {
         case ARROW_DOWN:
         case ARROW_LEFT:
         case ARROW_RIGHT:
-            editorMoveCursor(c);
+            editorMoveCursor(ch);
+            break;
+
+        default:
+            editorInsertChar(ch);
             break;
     }
 }
