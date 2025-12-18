@@ -74,6 +74,8 @@ struct EditorConfig {
     char statusMsg[80];
     time_t statusMsgTime;
 
+    bool isDirty;
+
     // Caches the original terminal attributes for later cleanup.
     struct termios ogTermios;
 };
@@ -107,6 +109,11 @@ void bufAppend(struct AppendBuf *aBuf, const char *s, int len) {
 void freeAppendBuf(struct AppendBuf *aBuf) {
     free(aBuf->buf);
 }
+
+/*
+ * Forward declarations.
+ */
+void editorSetStatusMessage(const char *fmt, ...);
 
 /*
  * Terminal handling.
@@ -383,6 +390,7 @@ void editorAppendRow(char *s, size_t len) {
     editorUpdateRow(&editor.rows[at]);
 
     editor.rowAmt++;
+    editor.isDirty = true;
 }
 
 void editorInsertCharIntoRow(struct TextRow* row, int at, int ch) {
@@ -398,6 +406,7 @@ void editorInsertCharIntoRow(struct TextRow* row, int at, int ch) {
     row->size++;
     row->chars[at] = ch;
     editorUpdateRow(row);
+    editor.isDirty = true;
 }
 
 /*
@@ -469,6 +478,11 @@ void editorOpen(char *filename) {
     }
     free(line);
     fclose(fp);
+
+    // When loading the file contents, the file is marked as dirty.
+    // We don't want this, so we mark the file as not dirty at the end of this
+    // process.
+    editor.isDirty = false;
 }
 
 void editorSave() {
@@ -480,10 +494,22 @@ void editorSave() {
     char *buf = editorRowsToString(&len);
 
     int fd = open(editor.filename, O_RDWR | O_CREAT, 0644);
-    ftruncate(fd, len);
-    write(fd, buf, len);
-    close(fd);
+    
+    if (fd != -1) {
+        if (ftruncate(fd, len) != -1) {
+            if (write(fd, buf, len) == len) {
+                close(fd);
+                free(buf);
+                // Mark the file as no longer dirty as we are saving it.
+                editor.isDirty = false;
+                editorSetStatusMessage("%d bytes written to disk", len);
+                return;
+            }    
+        }
+        close(fd);
+    }
     free(buf);
+    editorSetStatusMessage("Cannot save file: %s", strerror(errno));
 }
 
 /*
@@ -695,9 +721,10 @@ void editorDrawStatusBar(struct AppendBuf *aBuf) {
     // Reserve the left and right portions of the status bar.
     char statusLeft[80], statusRight[80];
 
-    int statusLeftLen = snprintf(statusLeft, sizeof(statusLeft), "%.20s - %d lines",
+    int statusLeftLen = snprintf(statusLeft, sizeof(statusLeft), "%.20s - %d lines %s",
         (editor.filename != NULL)? editor.filename : "[No Filename]", 
-        editor.rowAmt);
+        editor.rowAmt,
+        (editor.isDirty)? "(modified)" : "");
 
     int statusRightLen = snprintf(statusRight, sizeof(statusRight), "%d/%d", 
         editor.cursorY + 1, editor.rowAmt);
@@ -791,6 +818,8 @@ void initEditor() {
     editor.statusMsg[0] = '\0';
     editor.statusMsgTime = 0;
 
+    editor.isDirty = false;
+
     if (getWindowSize(&editor.termRows, &editor.termCols) == -1) {
         die("getWindowSize");
     }
@@ -805,7 +834,7 @@ int main(int argc, char *argv[]) {
         editorOpen(argv[1]);
     }
 
-    editorSetStatusMessage("HELP: press CTRL-Q to quit");
+    editorSetStatusMessage("HELP: press CTRL-Q to quit or CTRL-S to save");
 
     while (true) {
         editorRefreshScreen();
