@@ -26,6 +26,8 @@
 
 #define TERMINAL_EDITOR_STATUS_MSG_TIMEOUT 5
 
+#define TERMINAL_EDITOR_QUIT_TIMES 3
+
 // Maps ASCII letters to their control character counterpart.
 // i.e. This maps 'a' (97) to 1 and 'z' (122) to 26.
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -571,6 +573,8 @@ void editorMoveCursor(int key) {
 
 // Waits for a key press and processes it. 
 void editorProcessKeypress() {
+    static int quitTimes = TERMINAL_EDITOR_QUIT_TIMES;
+
     int ch = editorReadKey();
 
     switch (ch) {
@@ -579,6 +583,15 @@ void editorProcessKeypress() {
             break;
 
         case CTRL_KEY('q'):
+            // Stop the user from quitting immediately if they have 
+            // unsaved changes.
+            if (editor.isDirty && quitTimes > 0) {
+                editorSetStatusMessage("Warning: Unsaved changes! " 
+                    "Press CTRL-Q %d more times to quit.", quitTimes);
+                quitTimes--;
+                return;
+            }
+
             clearTermScreen();
             resetTermCursor();
             exit(0);
@@ -639,6 +652,8 @@ void editorProcessKeypress() {
             editorInsertChar(ch);
             break;
     }
+
+    quitTimes = TERMINAL_EDITOR_QUIT_TIMES;
 }
 
 /*
