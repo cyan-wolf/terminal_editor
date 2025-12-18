@@ -589,16 +589,35 @@ void editorDrawStatusBar(struct AppendBuf *aBuf) {
     // Invert terminal colors for this row.
     bufAppend(aBuf, "\x1b[7m", 4);
 
-    char status[80];
+    // Reserve the left and right portions of the status bar.
+    char statusLeft[80], statusRight[80];
 
-    int statusLen = snprintf(status, sizeof(status), "%.20s - %d lines",
+    int statusLeftLen = snprintf(statusLeft, sizeof(statusLeft), "%.20s - %d lines",
         (editor.filename != NULL)? editor.filename : "[No Filename]", 
         editor.rowAmt);
-    bufAppend(aBuf, status, statusLen);
 
-    while (statusLen < editor.termCols) {
-        bufAppend(aBuf, " ", 1);
-        statusLen++;
+    int statusRightLen = snprintf(statusRight, sizeof(statusRight), "%d/%d", 
+        editor.cursorY + 1, editor.rowAmt);
+
+    if (statusLeftLen > editor.termCols) {
+        statusLeftLen = editor.termCols;
+    }
+    // Add the left portion of the status to the screen.
+    bufAppend(aBuf, statusLeft, statusLeftLen);
+
+    while (statusLeftLen < editor.termCols) {
+        // Add the right poriton of the status to the screen once we determine that 
+        // we have enough space for the right portion.
+        if (editor.termCols - statusLeftLen == statusRightLen) {
+            bufAppend(aBuf, statusRight, statusRightLen);
+            break;
+        }
+        // Add the margin between the left and right portions of the status 
+        // to the screen.
+        else {
+            bufAppend(aBuf, " ", 1);
+            statusLeftLen++;
+        }
     }
     // Reset terminal colors back to normal.
     bufAppend(aBuf, "\x1b[m", 3);
