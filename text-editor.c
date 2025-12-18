@@ -7,11 +7,13 @@
 #include <termios.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <string.h>
+#include <time.h>
 
 /*
  * Defines.
@@ -20,6 +22,8 @@
 #define TERMINAL_EDITOR_VERSION "0.0.1"
 
 #define TERMINAL_EDITOR_TAB_SIZE 8
+
+#define TERMINAL_EDITOR_STATUS_MSG_TIMEOUT 5
 
 // Maps ASCII letters to their control character counterpart.
 // i.e. This maps 'a' (97) to 1 and 'z' (122) to 26.
@@ -64,6 +68,9 @@ struct EditorConfig {
     struct TextRow *rows;
 
     char *filename;
+
+    char statusMsg[80];
+    time_t statusMsgTime;
 
     // Caches the original terminal attributes for later cleanup.
     struct termios ogTermios;
@@ -621,6 +628,19 @@ void editorDrawStatusBar(struct AppendBuf *aBuf) {
     }
     // Reset terminal colors back to normal.
     bufAppend(aBuf, "\x1b[m", 3);
+    bufAppend(aBuf, "\r\n", 2);
+}
+
+void editorDrawMessageBar(struct AppendBuf *aBuf) {
+    bufAppend(aBuf, "\x1b[K", 3);
+    int msgLen = strlen(editor.statusMsg);
+    
+    if (msgLen > editor.termCols) {
+        msgLen = editor.termCols;
+    }
+    if (msgLen && time(NULL) - editor.statusMsgTime < TERMINAL_EDITOR_STATUS_MSG_TIMEOUT) {
+        bufAppend(aBuf, editor.statusMsg, msgLen);
+    }
 }
 
 void editorRefreshScreen() {
@@ -633,6 +653,7 @@ void editorRefreshScreen() {
 
     editorDrawRows(&aBuf);
     editorDrawStatusBar(&aBuf);
+    editorDrawMessageBar(&aBuf);
 
     // Move the cursor to be at the position saved in the editor state.
     char buf[32];
@@ -643,6 +664,14 @@ void editorRefreshScreen() {
 
     write(STDOUT_FILENO, aBuf.buf, aBuf.len);
     freeAppendBuf(&aBuf);
+}
+
+void editorSetStatusMessage(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(editor.statusMsg, sizeof(editor.statusMsg), fmt, ap);
+    va_end(ap);
+    editor.statusMsgTime = time(NULL);
 }
 
 /*
@@ -663,10 +692,13 @@ void initEditor() {
     
     editor.filename = NULL;
 
+    editor.statusMsg[0] = '\0';
+    editor.statusMsgTime = 0;
+
     if (getWindowSize(&editor.termRows, &editor.termCols) == -1) {
         die("getWindowSize");
     }
-    editor.termRows -= 1; // make room for the status row at the bottom
+    editor.termRows -= 2; // make room for the status rows at the bottom
 }
 
 int main(int argc, char *argv[]) {
@@ -677,8 +709,12 @@ int main(int argc, char *argv[]) {
         editorOpen(argv[1]);
     }
 
+    editorSetStatusMessage("HELP: press CTRL-Q to quit");
+
     while (true) {
         editorRefreshScreen();
+
+        // Blocks until a keypress is read.
         editorProcessKeypress();
     }
 
