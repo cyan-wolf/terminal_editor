@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <string.h>
 #include <time.h>
+#include <fcntl.h>
 
 /*
  * Defines.
@@ -30,6 +31,7 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 enum EditorKey {
+    BACKSPACE = 127,
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
     ARROW_UP,
@@ -414,6 +416,36 @@ void editorInsertChar(int ch) {
  * File IO.
  */
 
+char *editorRowsToString(int *bufLen) {
+    int totalLen = 0;
+    for (int i = 0; i < editor.rowAmt; ++i) {
+        totalLen += editor.rows[i].size + 1; // +1 for line feeds
+    }
+    *bufLen = totalLen; // save out param
+
+    // Use the total character length calculated in the previous 
+    // pass to allocate the entire buffer at once.
+    char *buf = malloc(totalLen);
+
+    // Iterator into the buffer. 
+    // Always points to the start position of a line by the end of a loop 
+    // iteration.
+    char *iter = buf;
+    
+    for (int i = 0; i < editor.rowAmt; i++) {
+        // Copy each row to the buffer.
+        memcpy(iter, editor.rows[i].chars, editor.rows[i].size);
+
+        // Move the iterator past the current line.
+        iter += editor.rows[i].size;
+
+        // Add a line feed to separate the lines in the file string.
+        *iter = '\n';
+        iter++;
+    }
+    return buf;
+}
+
 void editorOpen(char *filename) {
     free(editor.filename);
     editor.filename = strdup(filename);
@@ -437,6 +469,21 @@ void editorOpen(char *filename) {
     }
     free(line);
     fclose(fp);
+}
+
+void editorSave() {
+    if (editor.filename == NULL) {
+        return;
+    }
+
+    int len;
+    char *buf = editorRowsToString(&len);
+
+    int fd = open(editor.filename, O_RDWR | O_CREAT, 0644);
+    ftruncate(fd, len);
+    write(fd, buf, len);
+    close(fd);
+    free(buf);
 }
 
 /*
@@ -501,12 +548,19 @@ void editorProcessKeypress() {
     int ch = editorReadKey();
 
     switch (ch) {
+        case '\r':
+            // TODO: insert new line
+            break;
+
         case CTRL_KEY('q'):
             clearTermScreen();
             resetTermCursor();
             exit(0);
             break;
 
+        case CTRL_KEY('s'):
+            editorSave();
+            break;
 
         case HOME_KEY:
             editor.cursorX = 0;
@@ -516,6 +570,12 @@ void editorProcessKeypress() {
             if (editor.cursorY < editor.rowAmt) {
                 editor.cursorX = editor.rows[editor.cursorY].size;
             }
+            break;
+
+        case BACKSPACE:
+        case CTRL_KEY('h'):
+        case DEL_KEY:
+            // TODO: delete the current character (or line if it is empty)
             break;
 
         case PAGE_UP:
@@ -542,6 +602,11 @@ void editorProcessKeypress() {
         case ARROW_LEFT:
         case ARROW_RIGHT:
             editorMoveCursor(ch);
+            break;
+
+        case CTRL_KEY('l'):
+        case '\x1b':
+            // Ignore control characters.
             break;
 
         default:
