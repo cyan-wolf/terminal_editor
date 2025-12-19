@@ -15,6 +15,7 @@
 #include <string.h>
 #include <time.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 /*
  * Defines.
@@ -116,6 +117,8 @@ void freeAppendBuf(struct AppendBuf *aBuf) {
  * Forward declarations.
  */
 void editorSetStatusMessage(const char *fmt, ...);
+void editorRefreshScreen();
+char *editorPrompt(char *prompt);
 
 /*
  * Terminal handling.
@@ -572,7 +575,12 @@ void editorOpen(char *filename) {
 
 void editorSave() {
     if (editor.filename == NULL) {
-        return;
+        editor.filename = editorPrompt("Save as: %s");
+
+        if (editor.filename == NULL) {
+            editorSetStatusMessage("Save aborted.");
+            return;
+        }
     }
 
     int len;
@@ -601,6 +609,42 @@ void editorSave() {
  * Input handling.
  */
 
+
+char *editorPrompt(char *prompt) {
+    size_t bufSize = 128;
+    char *buf = malloc(bufSize);
+
+    size_t bufLen = 0;
+    buf[0] = '\0';
+
+    while (true) {
+        editorSetStatusMessage(prompt, buf);
+        editorRefreshScreen();
+
+        int ch = editorReadKey();
+
+        if (ch == '\x1b') {
+            editorSetStatusMessage("");
+            free(buf);
+            return NULL;
+        }
+        else if (ch == '\r') {
+            if (bufLen != 0) {
+                editorSetStatusMessage("");
+                return buf;
+            }
+        }
+        else if (!iscntrl(ch) && ch < 128) {
+            if (bufLen == bufSize - 1) {
+                bufSize *= 2;
+                buf = realloc(buf, bufSize);
+            }
+            buf[bufLen] = ch;
+            bufLen++;
+            buf[bufLen] = '\0';
+        }
+    }
+}
 
 void editorMoveCursor(int key) {
     struct TextRow *currRow = (editor.cursorY >= editor.rowAmt)? NULL : &editor.rows[editor.cursorY];
