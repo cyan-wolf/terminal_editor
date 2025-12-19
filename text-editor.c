@@ -378,10 +378,14 @@ void editorUpdateRow(struct TextRow *row) {
     row->renderSize = renderIdx;
 }
 
-void editorAppendRow(char *s, size_t len) {
-    editor.rows = realloc(editor.rows, sizeof(struct TextRow) * (editor.rowAmt + 1));
+void editorInsertRow(int at, char *s, size_t len) {
+    if (at < 0 || at > editor.rowAmt) {
+        return;
+    }
 
-    int at = editor.rowAmt;
+    editor.rows = realloc(editor.rows, sizeof(struct TextRow) * (editor.rowAmt + 1));
+    memmove(&editor.rows[at + 1], &editor.rows[at], sizeof(struct TextRow) * (editor.rowAmt - at));
+
     editor.rows[at].size = len;
     editor.rows[at].chars = malloc(len + 1);
     memcpy(editor.rows[at].chars, s, len);
@@ -392,6 +396,21 @@ void editorAppendRow(char *s, size_t len) {
     editorUpdateRow(&editor.rows[at]);
 
     editor.rowAmt++;
+    editor.isDirty = true;
+}
+
+void editorFreeRow(struct TextRow *row) {
+    free(row->render);
+    free(row->chars);
+}
+
+void editorDeleteRow(int at) {
+    if (at < 0 || at >= editor.rowAmt) {
+        return;
+    }
+    editorFreeRow(&editor.rows[at]);
+    memmove(&editor.rows[at], &editor.rows[at + 1], sizeof(struct TextRow) * (editor.rowAmt - at - 1));
+    editor.rowAmt--;
     editor.isDirty = true;
 }
 
@@ -407,6 +426,15 @@ void editorInsertCharIntoRow(struct TextRow *row, int at, int ch) {
 
     row->size++;
     row->chars[at] = ch;
+    editorUpdateRow(row);
+    editor.isDirty = true;
+}
+
+void editorAppendStringToRow(struct TextRow *row, char *s, size_t len) {
+    row->chars = realloc(row->chars, row->size + len + 1);
+    memcpy(&row->chars[row->size], s, len);
+    row->size += len;
+    row->chars[row->size] = '\0';
     editorUpdateRow(row);
     editor.isDirty = true;
 }
@@ -429,20 +457,52 @@ void editorDeleteCharFromRow(struct TextRow *row, int at) {
 
 void editorInsertChar(int ch) {
     if (editor.cursorY == editor.rowAmt) {
-        editorAppendRow("", 0);
+        editorInsertRow(editor.rowAmt, "", 0);
     }
     editorInsertCharIntoRow(&editor.rows[editor.cursorY], editor.cursorX, ch);
     editor.cursorX++;
+}
+
+void editorInsertNewline() {
+    // We are at the start of a line, we can just add a new empty line.
+    if (editor.cursorX == 0) {
+        editorInsertRow(editor.cursorY, "", 0);
+    }
+    // We are pressing ENTER in the middle of an existing line, therefore 
+    // we must split it along where the cursor's X position is.
+    else {
+        struct TextRow *row = &editor.rows[editor.cursorY];
+        editorInsertRow(editor.cursorY + 1, &row->chars[editor.cursorX], row->size - editor.cursorX);
+
+        // Reassign the row as it might have been invalidated by the call to 
+        // `editorInsertRow`.
+        row = &editor.rows[editor.cursorY];
+        row->size = editor.cursorX;
+        row->chars[row->size] = '\0';
+        editorUpdateRow(row);
+    }
+    editor.cursorY++;
+    editor.cursorX = 0;
 }
 
 void editorDelChar() {
     if (editor.cursorY == editor.rowAmt) {
         return;
     }
+    if (editor.cursorX == 0 && editor.cursorY == 0) {
+        return;
+    }
+
     struct TextRow *row = &editor.rows[editor.cursorY];
     if (editor.cursorX > 0) {
         editorDeleteCharFromRow(row, editor.cursorX - 1);
         editor.cursorX--;
+    }
+    else {
+        editor.cursorX = editor.rows[editor.cursorY - 1].size;
+        editorAppendStringToRow(&editor.rows[editor.cursorY - 1], row->chars, row->size);
+        editorDeleteRow(editor.cursorY);
+        editor.cursorY--;
     }
 }
 
@@ -499,7 +559,7 @@ void editorOpen(char *filename) {
         ) {
             lineLen--;
         }
-        editorAppendRow(line, lineLen);
+        editorInsertRow(editor.rowAmt, line, lineLen);
     }
     free(line);
     fclose(fp);
@@ -602,7 +662,7 @@ void editorProcessKeypress() {
 
     switch (ch) {
         case '\r':
-            // TODO: insert new line
+            editorInsertNewline();
             break;
 
         case CTRL_KEY('q'):
