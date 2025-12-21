@@ -338,6 +338,9 @@ int getWindowSize(int *rows, int *cols) {
  * Row operations
  */
 
+// Converts an index into the row's real backing character array 
+// `row.chars` into an index into the row's rendereed character array 
+// `row.render`.
 int editorCursorXRealToRender(struct TextRow *row, int cursorX) {
     int renderCursorX = 0;
     
@@ -348,6 +351,24 @@ int editorCursorXRealToRender(struct TextRow *row, int cursorX) {
         renderCursorX++;
     }
     return renderCursorX;
+}
+
+// Does the same thing as `editorCursorXRealToRender` but in the other 
+// direction where it turns a `row.render` index into a `row.chars` index.
+int editorRenderCursorXToReal(struct TextRow *row, int renderCursorX) {
+    int currRenderCursorX = 0;
+    
+    for (int cursorX = 0; cursorX < row->size; ++cursorX) {
+        if (row->chars[cursorX] == '\t') {
+            currRenderCursorX += (TERMINAL_EDITOR_TAB_SIZE - 1) - (currRenderCursorX % TERMINAL_EDITOR_TAB_SIZE);
+        }
+        currRenderCursorX++;
+
+        if (currRenderCursorX > renderCursorX) {
+            return cursorX;
+        }
+    }
+    return row->size; // unreachable
 }
 
 void editorUpdateRow(struct TextRow *row) {
@@ -606,6 +627,37 @@ void editorSave() {
 }
 
 /*
+ * Finding / text-search.
+ */
+
+void editorFind() {
+    char *query = editorPrompt("Search %s (ESC to cancel)");
+    if (query == NULL) {
+        return;
+    }
+
+    // Loop through all the rows to see if we get a match for the 
+    // user's search string.
+    // If we do get a match, we move the cursor to the first row that 
+    // matches.
+    for (int i = 0; i < editor.rowAmt; ++i) {
+        struct TextRow *row = &editor.rows[i];
+        char *match = strstr(row->render, query);
+
+        if (match) {
+            editor.cursorY = i;
+            // The difference between the match and render pointers is an index into the 
+            // render array, not the chars array. Since `editor.cursorX` is supposed to be 
+            // an index into the chars array, we need to convert it.
+            editor.cursorX = editorRenderCursorXToReal(row, match - row->render);
+            editor.rowOffset = editor.rowAmt;
+            break;
+        }
+    }
+    free(query);
+}
+
+/*
  * Input handling.
  */
 
@@ -623,7 +675,13 @@ char *editorPrompt(char *prompt) {
 
         int ch = editorReadKey();
 
-        if (ch == '\x1b') {
+        if (ch == DEL_KEY || ch == CTRL_KEY('h') || ch == BACKSPACE) {
+            if (bufLen != 0) {
+                bufLen--;
+                buf[bufLen] = '\0';
+            }
+        }
+        else if (ch == '\x1b') {
             editorSetStatusMessage("");
             free(buf);
             return NULL;
@@ -736,6 +794,10 @@ void editorProcessKeypress() {
             if (editor.cursorY < editor.rowAmt) {
                 editor.cursorX = editor.rows[editor.cursorY].size;
             }
+            break;
+
+        case CTRL_KEY('f'):
+            editorFind();
             break;
 
         case BACKSPACE:
@@ -980,7 +1042,7 @@ int main(int argc, char *argv[]) {
         editorOpen(argv[1]);
     }
 
-    editorSetStatusMessage("HELP: press CTRL-Q to quit or CTRL-S to save");
+    editorSetStatusMessage("HELP: press CTRL-Q to quit or CTRL-S to save or CTRL-F to find");
 
     while (true) {
         editorRefreshScreen();
