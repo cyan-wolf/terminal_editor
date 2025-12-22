@@ -632,20 +632,50 @@ void editorSave() {
 
 
 void editorFindCallback(char *query, int key) {
+    static int lastMatch = -1;
+    static int direction = 1;
+
     if (key == '\r' || key == '\x1b') {
+        lastMatch = -1;
+        direction = 1;
         return;
     }
+    else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
+        direction = 1;
+    }
+    else if (key == ARROW_LEFT || key == ARROW_UP) {
+        direction = -1;
+    }
+    else {
+        lastMatch = -1;
+        direction = 1;
+    }
+
+    if (lastMatch == -1) {
+        direction = 1;
+    }
+    int current = lastMatch;
 
     // Loop through all the rows to see if we get a match for the 
     // user's search string.
     // If we do get a match, we move the cursor to the first row that 
     // matches.
     for (int i = 0; i < editor.rowAmt; ++i) {
-        struct TextRow *row = &editor.rows[i];
+        current += direction;
+        if (current == -1) {
+            current = editor.rowAmt - 1;
+        }
+        else if (current == editor.rowAmt) {
+            current = 0;
+        }
+
+        struct TextRow *row = &editor.rows[current];
         char *match = strstr(row->render, query);
 
         if (match) {
-            editor.cursorY = i;
+            lastMatch = current;
+            editor.cursorY = current;
+            
             // The difference between the match and render pointers is an index into the 
             // render array, not the chars array. Since `editor.cursorX` is supposed to be 
             // an index into the chars array, we need to convert it.
@@ -665,7 +695,7 @@ void editorFind() {
     int savedColOffset = editor.colOffset;
     int savedRowOffset = editor.rowOffset;
     
-    char *query = editorPrompt("Search %s (ESC to cancel)", editorFindCallback);
+    char *query = editorPrompt("Search %s (Use ESC/Arrow Keys/Enter)", editorFindCallback);
     
     // The user found what they where looking for, therefore we free the query.
     if (query) {
