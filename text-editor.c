@@ -118,7 +118,7 @@ void freeAppendBuf(struct AppendBuf *aBuf) {
  */
 void editorSetStatusMessage(const char *fmt, ...);
 void editorRefreshScreen();
-char *editorPrompt(char *prompt);
+char *editorPrompt(char *prompt, void (*callback)(char *, int));
 
 /*
  * Terminal handling.
@@ -596,7 +596,7 @@ void editorOpen(char *filename) {
 
 void editorSave() {
     if (editor.filename == NULL) {
-        editor.filename = editorPrompt("Save as: %s");
+        editor.filename = editorPrompt("Save as: %s", NULL);
 
         if (editor.filename == NULL) {
             editorSetStatusMessage("Save aborted.");
@@ -630,9 +630,9 @@ void editorSave() {
  * Finding / text-search.
  */
 
-void editorFind() {
-    char *query = editorPrompt("Search %s (ESC to cancel)");
-    if (query == NULL) {
+
+void editorFindCallback(char *query, int key) {
+    if (key == '\r' || key == '\x1b') {
         return;
     }
 
@@ -654,7 +654,31 @@ void editorFind() {
             break;
         }
     }
-    free(query);
+} 
+
+void editorFind() {
+    // Save the cursor position and offset in case we want to 
+    // retore the cursor back to its original location, which 
+    // happens when the user cancels a search.
+    int savedCursorX = editor.cursorX;
+    int savedCursorY = editor.cursorY;
+    int savedColOffset = editor.colOffset;
+    int savedRowOffset = editor.rowOffset;
+    
+    char *query = editorPrompt("Search %s (ESC to cancel)", editorFindCallback);
+    
+    // The user found what they where looking for, therefore we free the query.
+    if (query) {
+        free(query);
+    }
+    // The user canceled the search, therefore we restore the cursor's 
+    // position and offset.
+    else {
+        editor.cursorX = savedCursorX;
+        editor.cursorY = savedCursorY;
+        editor.colOffset = savedColOffset;
+        editor.rowOffset = savedRowOffset;
+    }
 }
 
 /*
@@ -662,7 +686,7 @@ void editorFind() {
  */
 
 
-char *editorPrompt(char *prompt) {
+char *editorPrompt(char *prompt, void (*callback)(char *, int)) {
     size_t bufSize = 128;
     char *buf = malloc(bufSize);
 
@@ -683,12 +707,22 @@ char *editorPrompt(char *prompt) {
         }
         else if (ch == '\x1b') {
             editorSetStatusMessage("");
+
+            if (callback) {
+                callback(buf, ch);
+            }
+
             free(buf);
             return NULL;
         }
         else if (ch == '\r') {
             if (bufLen != 0) {
                 editorSetStatusMessage("");
+
+                if (callback) {
+                    callback(buf, ch);
+                }
+
                 return buf;
             }
         }
@@ -700,6 +734,10 @@ char *editorPrompt(char *prompt) {
             buf[bufLen] = ch;
             bufLen++;
             buf[bufLen] = '\0';
+        }
+
+        if (callback) {
+            callback(buf, ch);
         }
     }
 }
