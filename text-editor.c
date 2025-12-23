@@ -46,6 +46,11 @@ enum EditorKey {
     PAGE_DOWN,
 };
 
+enum EditorHighlight {
+    HL_NORMAL = 0,
+    HL_NUMBER
+};
+
 /*
  * Data.
  */
@@ -56,6 +61,8 @@ struct TextRow {
 
     int renderSize;
     char *render;
+
+    unsigned char *highlight;
 };
 
 struct EditorConfig {
@@ -335,6 +342,28 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*
+ * Syntax highlighting. 
+ */
+
+void editorUpdateSyntax(struct TextRow *row) {
+    row->highlight = realloc(row->highlight, row->renderSize);
+    memset(row->highlight, HL_NORMAL, row->renderSize);
+
+    for (int i = 0; i < row->renderSize; ++i) {
+        if (isdigit(row->render[i])) {
+            row->highlight[i] = HL_NUMBER;
+        }
+    }
+}
+
+int editorSyntaxToColor(int highlightType) {
+    switch (highlightType) {
+        case HL_NUMBER: return 31;
+        default: return 37;
+    }
+}
+
+/*
  * Row operations
  */
 
@@ -400,6 +429,8 @@ void editorUpdateRow(struct TextRow *row) {
     }
     row->render[renderIdx] = '\0';
     row->renderSize = renderIdx;
+
+    editorUpdateSyntax(row);
 }
 
 void editorInsertRow(int at, char *s, size_t len) {
@@ -417,6 +448,7 @@ void editorInsertRow(int at, char *s, size_t len) {
 
     editor.rows[at].renderSize = 0;
     editor.rows[at].render = NULL;
+    editor.rows[at].highlight = NULL;
     editorUpdateRow(&editor.rows[at]);
 
     editor.rowAmt++;
@@ -426,6 +458,7 @@ void editorInsertRow(int at, char *s, size_t len) {
 void editorFreeRow(struct TextRow *row) {
     free(row->render);
     free(row->chars);
+    free(row->highlight);
 }
 
 void editorDeleteRow(int at) {
@@ -983,20 +1016,36 @@ void editorDrawRows(struct AppendBuf *aBuf) {
             }
 
             char *c = &editor.rows[fileRow].render[editor.colOffset];
+            unsigned char *hl = &editor.rows[fileRow].highlight[editor.colOffset];
+            int currColor = -1;
+
             for (int i = 0; i < len; ++i) {
-                // If the current character `c` is a digit then add a 
-                // code to change the foreground colort to red before 
-                // appending the current character to the buffer and then a code 
-                // to reset the foreground color.
-                if (isdigit(c[i])) {
-                    bufAppend(aBuf, "\x1b[31m", 5);
-                    bufAppend(aBuf, &c[i], 1);
-                    bufAppend(aBuf, "\x1b[39m", 5);
+                // If the highlight corrresponding to this character is 
+                // `HL_NORMAL` then append a formatting-reset code before 
+                // the character.
+                if (hl[i] == HL_NORMAL) {
+                   if (currColor != -1) {
+                        bufAppend(aBuf, "\x1b[39m", 5);
+                        currColor = -1;
+                    }
+                    bufAppend(aBuf, &c[i], 1); 
                 }
+                // Otherwise, append a color code before the character.
                 else {
+                    int color = editorSyntaxToColor(hl[i]);
+
+                    if (color != currColor) {
+                        currColor = color;
+                        char buf[16];
+                        int cLen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                        bufAppend(aBuf, buf, cLen);
+                    }
                     bufAppend(aBuf, &c[i], 1);
                 }
             }
+            // Append another formatting-reset code after appending 
+            // all the row characters just in case.
+            bufAppend(aBuf, "\x1b[39m", 5);
         }
 
         clearTermLine(aBuf);
