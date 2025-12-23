@@ -981,7 +981,22 @@ void editorDrawRows(struct AppendBuf *aBuf) {
             if (len > editor.termCols) {
                 len = editor.termCols;
             }
-            bufAppend(aBuf, &editor.rows[fileRow].render[editor.colOffset], len);
+
+            char *c = &editor.rows[fileRow].render[editor.colOffset];
+            for (int i = 0; i < len; ++i) {
+                // If the current character `c` is a digit then add a 
+                // code to change the foreground colort to red before 
+                // appending the current character to the buffer and then a code 
+                // to reset the foreground color.
+                if (isdigit(c[i])) {
+                    bufAppend(aBuf, "\x1b[31m", 5);
+                    bufAppend(aBuf, &c[i], 1);
+                    bufAppend(aBuf, "\x1b[39m", 5);
+                }
+                else {
+                    bufAppend(aBuf, &c[i], 1);
+                }
+            }
         }
 
         clearTermLine(aBuf);
