@@ -48,7 +48,8 @@ enum EditorKey {
 
 enum EditorHighlight {
     HL_NORMAL = 0,
-    HL_NUMBER
+    HL_NUMBER,
+    HL_MATCH
 };
 
 /*
@@ -359,6 +360,7 @@ void editorUpdateSyntax(struct TextRow *row) {
 int editorSyntaxToColor(int highlightType) {
     switch (highlightType) {
         case HL_NUMBER: return 31;
+        case HL_MATCH: return 34;
         default: return 37;
     }
 }
@@ -668,6 +670,15 @@ void editorFindCallback(char *query, int key) {
     static int lastMatch = -1;
     static int direction = 1;
 
+    static int savedHighlightLine;
+    static char *savedHighlight = NULL;
+
+    if (savedHighlight) {
+        memcpy(editor.rows[savedHighlightLine].highlight, savedHighlight, editor.rows[savedHighlightLine].renderSize);
+        free(savedHighlight);
+        savedHighlight = NULL;
+    }
+
     if (key == '\r' || key == '\x1b') {
         lastMatch = -1;
         direction = 1;
@@ -714,6 +725,16 @@ void editorFindCallback(char *query, int key) {
             // an index into the chars array, we need to convert it.
             editor.cursorX = editorRenderCursorXToReal(row, match - row->render);
             editor.rowOffset = editor.rowAmt;
+
+            // Save the line with the match before applying the highlight to 
+            // be able to restore it later.
+            savedHighlightLine = current;
+            savedHighlight = malloc(row->renderSize);
+            memcpy(savedHighlight, row->highlight, row->renderSize);
+
+            // Highlight matches.
+            memset(&row->highlight[match - row->render], HL_MATCH, strlen(query));
+
             break;
         }
     }
