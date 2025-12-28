@@ -433,6 +433,13 @@ void editorSelectSyntaxHighlight() {
             if ((isExt && fileExt && !strcmp(fileExt, syntax->fileMatch[j])) || 
                 (!isExt && strstr(editor.filename, syntax->fileMatch[j]))) {
                 editor.syntax = syntax;
+
+                // Re-highlight all the file's rows after a syntax highlighting 
+                // scheme is determined.
+                for (int fileRow = 0; fileRow < editor.rowAmt; ++fileRow) {
+                    editorUpdateSyntax(&editor.rows[fileRow]);
+                }
+
                 return;
             }
             j++;
