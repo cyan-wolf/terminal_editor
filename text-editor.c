@@ -52,9 +52,17 @@ enum EditorHighlight {
     HL_MATCH
 };
 
+#define HL_HIGHLIGHT_NUMBERS (1 << 0)
+
 /*
  * Data.
  */
+
+struct EditorSyntax {
+    char *fileType;
+    char **fileMatch;
+    int flags;
+};
 
 struct TextRow {
     int size;
@@ -85,6 +93,8 @@ struct EditorConfig {
     char statusMsg[80];
     time_t statusMsgTime;
 
+    struct EditorSyntax *syntax;
+
     bool isDirty;
 
     // Caches the original terminal attributes for later cleanup.
@@ -92,6 +102,22 @@ struct EditorConfig {
 };
 
 struct EditorConfig editor;
+
+/*
+ * File types. 
+ */
+
+char *cLangExtensions[] = { ".c", ".h", ".cpp", NULL };
+
+struct EditorSyntax highlightDb[] = {
+    {
+        "c",
+        cLangExtensions,
+        HL_HIGHLIGHT_NUMBERS,
+    },
+};
+
+#define HIGHLIGHT_DB_ENTRIES (sizeof(highlightDb) / sizeof(highlightDb[0]))
 
 /*
  * "Append Buffer" type.
@@ -346,13 +372,37 @@ int getWindowSize(int *rows, int *cols) {
  * Syntax highlighting. 
  */
 
+bool isSeparator(int c) {
+    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+}
+
 void editorUpdateSyntax(struct TextRow *row) {
     row->highlight = realloc(row->highlight, row->renderSize);
     memset(row->highlight, HL_NORMAL, row->renderSize);
 
-    for (int i = 0; i < row->renderSize; ++i) {
-        if (isdigit(row->render[i])) {
-            row->highlight[i] = HL_NUMBER;
+    // If `editor.syntax` is not set then no file type was detected for the current file 
+    // and no syntax highlighting will take place.
+    if (editor.syntax == NULL) {
+        return;
+    }
+
+    bool prevWasSep = true;
+    int i = 0;
+
+    while (i < row->renderSize) {
+        char c = row->render[i];
+        unsigned char prevHighlight = (i > 0)? row->highlight[i - 1] : HL_NORMAL;
+
+        if (editor.syntax->flags & HL_HIGHLIGHT_NUMBERS) {
+            if ((isdigit(c) && (prevWasSep || prevHighlight == HL_NUMBER)) || 
+                (c == '.' && prevHighlight == HL_NUMBER)) {
+                row->highlight[i] = HL_NUMBER;
+                i++;
+                prevWasSep = false;
+                continue;
+            }
+            prevWasSep = isSeparator(c);
+            i++;
         }
     }
 }
@@ -362,6 +412,31 @@ int editorSyntaxToColor(int highlightType) {
         case HL_NUMBER: return 31;
         case HL_MATCH: return 34;
         default: return 37;
+    }
+}
+
+void editorSelectSyntaxHighlight() {
+    editor.syntax = NULL;
+    if (editor.filename == NULL) {
+        return;
+    }
+
+    char *fileExt = strchr(editor.filename, '.');
+
+    for (unsigned int i = 0; i < HIGHLIGHT_DB_ENTRIES; ++i) {
+        struct EditorSyntax *syntax = &highlightDb[i];
+
+        unsigned int j = 0;
+        while (syntax->fileMatch[j]) {
+            int isExt = (syntax->fileMatch[j][0] == '.');
+
+            if ((isExt && fileExt && !strcmp(fileExt, syntax->fileMatch[j])) || 
+                (!isExt && strstr(editor.filename, syntax->fileMatch[j]))) {
+                editor.syntax = syntax;
+                return;
+            }
+            j++;
+        }
     }
 }
 
@@ -603,6 +678,8 @@ void editorOpen(char *filename) {
     free(editor.filename);
     editor.filename = strdup(filename);
 
+    editorSelectSyntaxHighlight();
+
     FILE *fp = fopen(filename, "r");
     if (!fp) {
         die("fopen");
@@ -637,6 +714,7 @@ void editorSave() {
             editorSetStatusMessage("Save aborted.");
             return;
         }
+        editorSelectSyntaxHighlight();
     }
 
     int len;
@@ -1087,7 +1165,8 @@ void editorDrawStatusBar(struct AppendBuf *aBuf) {
         editor.rowAmt,
         (editor.isDirty)? "(modified)" : "");
 
-    int statusRightLen = snprintf(statusRight, sizeof(statusRight), "%d/%d", 
+    int statusRightLen = snprintf(statusRight, sizeof(statusRight), "%s | %d/%d", 
+        (editor.syntax)? editor.syntax->fileType : "no file type",
         editor.cursorY + 1, editor.rowAmt);
 
     if (statusLeftLen > editor.termCols) {
@@ -1178,6 +1257,8 @@ void initEditor() {
 
     editor.statusMsg[0] = '\0';
     editor.statusMsgTime = 0;
+
+    editor.syntax = NULL;
 
     editor.isDirty = false;
 
