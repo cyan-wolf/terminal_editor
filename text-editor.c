@@ -48,11 +48,13 @@ enum EditorKey {
 
 enum EditorHighlight {
     HL_NORMAL = 0,
+    HL_STRING,
     HL_NUMBER,
     HL_MATCH
 };
 
 #define HL_HIGHLIGHT_NUMBERS (1 << 0)
+#define HL_HIGHLIGHT_STRINGS (1 << 1)
 
 /*
  * Data.
@@ -113,7 +115,7 @@ struct EditorSyntax highlightDb[] = {
     {
         "c",
         cLangExtensions,
-        HL_HIGHLIGHT_NUMBERS,
+        HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS,
     },
 };
 
@@ -387,12 +389,40 @@ void editorUpdateSyntax(struct TextRow *row) {
     }
 
     bool prevWasSep = true;
+    bool inString = false; 
+    char stringDelim = '\0';
+    
     int i = 0;
-
     while (i < row->renderSize) {
         char c = row->render[i];
         unsigned char prevHighlight = (i > 0)? row->highlight[i - 1] : HL_NORMAL;
 
+        // Syntax highlighting for strings.
+        if (editor.syntax->flags & HL_HIGHLIGHT_STRINGS) {
+            if (inString) {
+                row->highlight[i] = HL_STRING;
+                
+                if (c == stringDelim) {
+                    inString = false;
+                    stringDelim = '\0';
+                }
+                i++;
+                prevWasSep = true;
+                continue;
+            }
+            else {
+                if (c == '"' || c == '\'') {
+                    inString = true;
+                    stringDelim = c;
+                    
+                    row->highlight[i] = HL_STRING;
+                    i++;
+                    continue;
+                }
+            }
+        }
+
+        // Syntax highlighting for numbers.
         if (editor.syntax->flags & HL_HIGHLIGHT_NUMBERS) {
             if ((isdigit(c) && (prevWasSep || prevHighlight == HL_NUMBER)) || 
                 (c == '.' && prevHighlight == HL_NUMBER)) {
@@ -409,6 +439,7 @@ void editorUpdateSyntax(struct TextRow *row) {
 
 int editorSyntaxToColor(int highlightType) {
     switch (highlightType) {
+        case HL_STRING: return 35;
         case HL_NUMBER: return 31;
         case HL_MATCH: return 34;
         default: return 37;
