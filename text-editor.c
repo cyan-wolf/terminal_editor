@@ -48,6 +48,7 @@ enum EditorKey {
 
 enum EditorHighlight {
     HL_NORMAL = 0,
+    HL_COMMENT,
     HL_STRING,
     HL_NUMBER,
     HL_MATCH
@@ -63,6 +64,7 @@ enum EditorHighlight {
 struct EditorSyntax {
     char *fileType;
     char **fileMatch;
+    char *singleLineCommentStart;
     int flags;
 };
 
@@ -115,6 +117,7 @@ struct EditorSyntax highlightDb[] = {
     {
         "c",
         cLangExtensions,
+        "//",
         HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS,
     },
 };
@@ -388,6 +391,9 @@ void editorUpdateSyntax(struct TextRow *row) {
         return;
     }
 
+    char *singleLineCommentStart = editor.syntax->singleLineCommentStart;
+    int singleLineCommentLen = (singleLineCommentStart)? strlen(singleLineCommentStart) : 0;
+
     bool prevWasSep = true;
     bool inString = false; 
     char stringDelim = '\0';
@@ -397,10 +403,26 @@ void editorUpdateSyntax(struct TextRow *row) {
         char c = row->render[i];
         unsigned char prevHighlight = (i > 0)? row->highlight[i - 1] : HL_NORMAL;
 
+
+        // Syntax highlighting for single line comments.
+        if (singleLineCommentLen > 0 && !inString) {
+            if (!strncmp(&row->render[i], singleLineCommentStart, singleLineCommentLen)) {
+                memset(&row->highlight[i], HL_COMMENT, row->renderSize - i);
+                break;
+            }
+        }
+
         // Syntax highlighting for strings.
         if (editor.syntax->flags & HL_HIGHLIGHT_STRINGS) {
             if (inString) {
                 row->highlight[i] = HL_STRING;
+
+                // Highlight escaped single and double quotes.
+                if (c == '\\' && i + 1 < row->renderSize) {
+                    row->highlight[i + 1] = HL_STRING;
+                    i += 2;
+                    continue;
+                }
                 
                 if (c == stringDelim) {
                     inString = false;
@@ -439,6 +461,7 @@ void editorUpdateSyntax(struct TextRow *row) {
 
 int editorSyntaxToColor(int highlightType) {
     switch (highlightType) {
+        case HL_COMMENT: return 36;
         case HL_STRING: return 35;
         case HL_NUMBER: return 31;
         case HL_MATCH: return 34;
