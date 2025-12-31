@@ -49,6 +49,8 @@ enum EditorKey {
 enum EditorHighlight {
     HL_NORMAL = 0,
     HL_COMMENT,
+    HL_KEYWORD1,
+    HL_KEYWORD2,
     HL_STRING,
     HL_NUMBER,
     HL_MATCH
@@ -64,6 +66,7 @@ enum EditorHighlight {
 struct EditorSyntax {
     char *fileType;
     char **fileMatch;
+    char **keywords;
     char *singleLineCommentStart;
     int flags;
 };
@@ -113,10 +116,42 @@ struct EditorConfig editor;
 
 char *cLangExtensions[] = { ".c", ".h", ".cpp", NULL };
 
+char *cLangKeywords[] = {
+    // Proper keywords.
+    "switch",
+    "if",
+    "while",
+    "for",
+    "break",
+    "continue",
+    "return",
+    "else",
+    "struct",
+    "union",
+    "typedef",
+    "static",
+    "enum",
+    "class",
+    "case",
+
+    // Type names / modifiers.              
+    "int|",
+    "long|",
+    "double|",
+    "float|",
+    "char|",
+    "unsigned|",
+    "signed|",
+    "void|",
+
+    NULL,
+};
+
 struct EditorSyntax highlightDb[] = {
     {
         "c",
         cLangExtensions,
+        cLangKeywords,
         "//",
         HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS,
     },
@@ -391,6 +426,8 @@ void editorUpdateSyntax(struct TextRow *row) {
         return;
     }
 
+    char **keywords = editor.syntax->keywords;
+
     char *singleLineCommentStart = editor.syntax->singleLineCommentStart;
     int singleLineCommentLen = (singleLineCommentStart)? strlen(singleLineCommentStart) : 0;
 
@@ -453,15 +490,44 @@ void editorUpdateSyntax(struct TextRow *row) {
                 prevWasSep = false;
                 continue;
             }
-            prevWasSep = isSeparator(c);
-            i++;
         }
+
+        // Syntax highlighting for keywords.
+        if (prevWasSep) {
+            int j;
+            for (j = 0; keywords[j] != NULL; ++j) {
+                int keywordLen = strlen(keywords[j]);
+                bool isSecondaryKw = keywords[j][keywordLen - 1] == '|';
+
+                // Secondary keywords have an extra marker '|' at the end, we 
+                // decrement the keyword len to take into account the real length.
+                if (isSecondaryKw) {
+                    keywordLen--;
+                }
+
+                if (!strncmp(&row->render[i], keywords[j], keywordLen) && 
+                    isSeparator(row->render[i + keywordLen])) {
+                    memset(&row->highlight[i], isSecondaryKw ? HL_KEYWORD2 : HL_KEYWORD1, keywordLen);
+                    i += keywordLen;
+                    break;
+                }
+            }
+            if (keywords[j] != NULL) {
+                prevWasSep = false;
+                continue;
+            }
+        }
+
+        prevWasSep = isSeparator(c);
+        i++;
     }
 }
 
 int editorSyntaxToColor(int highlightType) {
     switch (highlightType) {
         case HL_COMMENT: return 36;
+        case HL_KEYWORD1: return 33;
+        case HL_KEYWORD2: return 32;
         case HL_STRING: return 35;
         case HL_NUMBER: return 31;
         case HL_MATCH: return 34;
