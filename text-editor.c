@@ -49,6 +49,7 @@ enum EditorKey {
 enum EditorHighlight {
     HL_NORMAL = 0,
     HL_COMMENT,
+    HL_MULTILINE_COMMENT,
     HL_KEYWORD1,
     HL_KEYWORD2,
     HL_STRING,
@@ -68,10 +69,14 @@ struct EditorSyntax {
     char **fileMatch;
     char **keywords;
     char *singleLineCommentStart;
+    char *multiLineCommentStart;
+    char *multilineCommentEnd;
     int flags;
 };
 
 struct TextRow {
+    int idx;
+
     int size;
     char *chars;
 
@@ -79,6 +84,8 @@ struct TextRow {
     char *render;
 
     unsigned char *highlight;
+
+    bool partOfMultiLineComment;
 };
 
 struct EditorConfig {
@@ -153,6 +160,8 @@ struct EditorSyntax highlightDb[] = {
         cLangExtensions,
         cLangKeywords,
         "//",
+        "/*",
+        "*/",
         HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS,
     },
 };
@@ -429,25 +438,55 @@ void editorUpdateSyntax(struct TextRow *row) {
     char **keywords = editor.syntax->keywords;
 
     char *singleLineCommentStart = editor.syntax->singleLineCommentStart;
+    char *multiCommentStart = editor.syntax->multiLineCommentStart;
+    char *multiCommentEnd = editor.syntax->multilineCommentEnd;
+
     int singleLineCommentLen = (singleLineCommentStart)? strlen(singleLineCommentStart) : 0;
+    int multiCommentStartLen = (multiCommentStart)? strlen(multiCommentStart) : 0;
+    int multiCommentEndLen = (multiCommentEnd)? strlen(multiCommentEnd) : 0;
 
     bool prevWasSep = true;
     bool inString = false; 
     char stringDelim = '\0';
+
+    bool inComment = (row->idx > 0 && editor.rows[row->idx - 1].partOfMultiLineComment);
     
     int i = 0;
     while (i < row->renderSize) {
         char c = row->render[i];
         unsigned char prevHighlight = (i > 0)? row->highlight[i - 1] : HL_NORMAL;
 
-
         // Syntax highlighting for single line comments.
-        if (singleLineCommentLen > 0 && !inString) {
+        if (singleLineCommentLen > 0 && !inString && !inComment) {
             if (!strncmp(&row->render[i], singleLineCommentStart, singleLineCommentLen)) {
                 memset(&row->highlight[i], HL_COMMENT, row->renderSize - i);
                 break;
             }
         }
+
+        // Highlighting for multi line comments.
+        if (multiCommentStartLen > 0 && multiCommentEndLen > 0 && !inString) {
+            if (inComment) {
+                row->highlight[i] = HL_MULTILINE_COMMENT;
+                if (!strncmp(&row->render[i], multiCommentEnd, multiCommentEndLen)) {
+                    memset(&row->highlight[i], HL_COMMENT, multiCommentEndLen);
+                    i += multiCommentEndLen;
+                    inComment = false;
+                    prevWasSep = true;
+                    continue;
+                }
+                else {
+                    i++;
+                    continue;
+                }
+            }
+            else if (!strncmp(&row->render[i], multiCommentStart, multiCommentStartLen)) {
+                memset(&row->highlight[i], HL_COMMENT, multiCommentStartLen);
+                i += multiCommentStartLen;
+                inComment = true;
+                continue;
+            }        
+        } 
 
         // Syntax highlighting for strings.
         if (editor.syntax->flags & HL_HIGHLIGHT_STRINGS) {
@@ -521,11 +560,19 @@ void editorUpdateSyntax(struct TextRow *row) {
         prevWasSep = isSeparator(c);
         i++;
     }
+
+    bool commentStateChanged = (row->partOfMultiLineComment != inComment);
+    row->partOfMultiLineComment = inComment;
+
+    if (commentStateChanged && row->idx + 1 < editor.rowAmt) {
+        editorUpdateSyntax(&editor.rows[row->idx + 1]);
+    }
 }
 
 int editorSyntaxToColor(int highlightType) {
     switch (highlightType) {
-        case HL_COMMENT: return 36;
+        case HL_COMMENT: 
+        case HL_MULTILINE_COMMENT: return 36;
         case HL_KEYWORD1: return 33;
         case HL_KEYWORD2: return 32;
         case HL_STRING: return 35;
@@ -645,6 +692,13 @@ void editorInsertRow(int at, char *s, size_t len) {
     editor.rows = realloc(editor.rows, sizeof(struct TextRow) * (editor.rowAmt + 1));
     memmove(&editor.rows[at + 1], &editor.rows[at], sizeof(struct TextRow) * (editor.rowAmt - at));
 
+    // Update the indices of the rows after this row.
+    for (int i = at + 1; i <= editor.rowAmt; ++i) {
+        editor.rows[i].idx++;
+    }
+
+    editor.rows[at].idx = at;
+
     editor.rows[at].size = len;
     editor.rows[at].chars = malloc(len + 1);
     memcpy(editor.rows[at].chars, s, len);
@@ -653,6 +707,9 @@ void editorInsertRow(int at, char *s, size_t len) {
     editor.rows[at].renderSize = 0;
     editor.rows[at].render = NULL;
     editor.rows[at].highlight = NULL;
+
+    editor.rows[at].partOfMultiLineComment = false;
+
     editorUpdateRow(&editor.rows[at]);
 
     editor.rowAmt++;
@@ -671,6 +728,12 @@ void editorDeleteRow(int at) {
     }
     editorFreeRow(&editor.rows[at]);
     memmove(&editor.rows[at], &editor.rows[at + 1], sizeof(struct TextRow) * (editor.rowAmt - at - 1));
+    
+    // Update the indeces of the rows after the row to be deleted.
+    for (int i = at; i < editor.rowAmt - 1; ++i) {
+        editor.rows[i].idx--;
+    }
+    
     editor.rowAmt--;
     editor.isDirty = true;
 }
