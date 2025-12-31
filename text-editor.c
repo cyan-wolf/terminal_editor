@@ -1246,10 +1246,24 @@ void editorDrawRows(struct AppendBuf *aBuf) {
             int currColor = -1;
 
             for (int i = 0; i < len; ++i) {
+                // Handle printing control characters.
+                // They are printed using a '?' with inverted colors.
+                if (iscntrl(c[i])) {
+                    char sym = '?';
+                    bufAppend(aBuf, "\x1b[7m", 4);
+                    bufAppend(aBuf, &sym, 1);
+                    bufAppend(aBuf, "\x1b[m", 3);
+
+                    if (currColor != -1) {
+                        char buf[16];
+                        int cLen = snprintf(buf, sizeof(buf), "\x1b[%dm", currColor);
+                        bufAppend(aBuf, buf, cLen);
+                    }
+                }
                 // If the highlight corrresponding to this character is 
                 // `HL_NORMAL` then append a formatting-reset code before 
                 // the character.
-                if (hl[i] == HL_NORMAL) {
+                else if (hl[i] == HL_NORMAL) {
                    if (currColor != -1) {
                         bufAppend(aBuf, "\x1b[39m", 5);
                         currColor = -1;
